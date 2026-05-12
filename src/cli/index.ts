@@ -34,6 +34,19 @@ import { generalize } from './commands/generalize.js';
 import { workspaceReport } from './commands/workspaceReport.js';
 import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
 import { redactTest } from './commands/redactTest.js';
+// --- Phase 6 ---
+import { autonomyPolicyCmd, autonomySetLevelCmd, autonomyExplainCmd } from './commands/autonomy.js';
+import { autonomyRun, autonomyStatus, autonomyReport, trendShow, trendExplain } from './commands/autonomyRun.js';
+import { driftCheck, driftCompare } from './commands/drift.js';
+import { regressionBisect, regressionExplain, rollbackStable } from './commands/regressionBisector.js';
+import { selfDiagnose, selfHypotheses, selfExperiment, selfAccept, selfReject, selfRollback } from './commands/selfImprove.js';
+import { plannerCalibrate, plannerReport, plannerExplain } from './commands/plannerCalibration.js';
+import { executorReliability, executorRecommend, executorCompare } from './commands/executorReliability.js';
+import { qaHealth, qaCompact, qaMerge, qaRetireStale, qaReportMemory } from './commands/qaHealth.js';
+import { replayCreate, replayRun, replayExplain } from './commands/replay.js';
+import { scenarioList, scenarioRun } from './commands/scenario.js';
+import { governanceLog, governanceExplain } from './commands/governance.js';
+import { handoffCreate, handoffShow } from './commands/handoff.js';
 
 interface ParsedArgs {
   command: string;
@@ -223,6 +236,85 @@ async function main(): Promise<number> {
       return taxonomyExplain(args.flags);
     case 'redact:test':
       return redactTest(args.flags);
+    // --- Phase 6 ---
+    case 'autonomy:policy':
+      return autonomyPolicyCmd(args.flags);
+    case 'autonomy:set-level':
+      return autonomySetLevelCmd(args.flags);
+    case 'autonomy:explain':
+      return autonomyExplainCmd(args.flags);
+    case 'autonomy:run':
+      return autonomyRun(args.flags);
+    case 'autonomy:status':
+      return autonomyStatus(args.flags);
+    case 'autonomy:report':
+      return autonomyReport(args.flags);
+    case 'trend:show':
+      return trendShow(args.flags);
+    case 'trend:explain':
+      return trendExplain(args.flags);
+    case 'drift:check':
+      return driftCheck(args.flags);
+    case 'drift:compare':
+      return driftCompare(args.flags);
+    case 'regression:bisect':
+      return regressionBisect(args.flags);
+    case 'regression:explain':
+      return regressionExplain(args.flags);
+    case 'rollback:stable':
+      return rollbackStable(args.flags);
+    case 'self:diagnose':
+      return selfDiagnose(args.flags);
+    case 'self:hypotheses':
+      return selfHypotheses(args.flags);
+    case 'self:experiment':
+      return selfExperiment(args.flags);
+    case 'self:accept':
+      return selfAccept(args.flags);
+    case 'self:reject':
+      return selfReject(args.flags);
+    case 'self:rollback':
+      return selfRollback(args.flags);
+    case 'planner:calibrate':
+      return plannerCalibrate(args.flags);
+    case 'planner:report':
+      return plannerReport(args.flags);
+    case 'planner:explain':
+      return plannerExplain(args.flags);
+    case 'executor:reliability':
+      return executorReliability(args.flags);
+    case 'executor:recommend':
+      return executorRecommend(args.flags);
+    case 'executor:compare':
+      return executorCompare(args.flags);
+    case 'qa:health':
+      return qaHealth(args.flags);
+    case 'qa:compact':
+      return qaCompact(args.flags);
+    case 'qa:merge':
+      return qaMerge(args.flags);
+    case 'qa:retire-stale':
+      return qaRetireStale(args.flags);
+    case 'qa:report-memory':
+      return qaReportMemory(args.flags);
+    case 'replay:create':
+      return replayCreate(args.flags);
+    case 'replay:run':
+      return replayRun(args.flags);
+    case 'replay:explain':
+      return replayExplain(args.flags);
+    case 'scenario:list':
+      return scenarioList(args.flags);
+    case 'scenario:run':
+      return scenarioRun(args.flags);
+    case 'governance:log':
+      return governanceLog(args.flags);
+    case 'governance:explain':
+      return governanceExplain(args.flags);
+    case 'handoff:create':
+      return handoffCreate(args.flags);
+    case 'handoff:show':
+      return handoffShow(args.flags);
     case 'help':
     case '--help':
     case '-h':

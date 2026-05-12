@@ -188,9 +188,60 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ## Roadmap
 
-v0.0.5 = Phase-5 cross-project generalization & adaptive learning. v0.0.4
-proved we can drive a real Claude CLI on benchmark fixtures; **v0.0.5
-proves the same machinery generalizes to arbitrary unseen real projects**.
+v0.0.6 = Phase-6 long-horizon autonomy & self-improving engineering. v0.0.5
+proved we generalize across projects; **v0.0.6 proves we can run many
+rounds without losing quality, detect when we should stop, refuse to
+modify our own safety surface, and hand off cleanly to a human when stuck**.
+
+### v0.0.6 — Long-Horizon Autonomy & Self-Improving Engineering System
+
+- **`AutonomyPolicy` (6 levels)** — L0 read-only → L5 long-run.
+  `config/autonomy-policy.json` declares the budget,
+  `forbidden_self_modifications` list, and rollback rules. CLIs:
+  `autonomy:policy / set-level / explain`.
+- **`LongHorizonAutonomyController`** — session lifecycle wrapper around
+  the supervisor with per-iteration trend snapshots, drift checks, and a
+  governance decision log. CLIs: `autonomy:run / status / report`,
+  `long-run`.
+- **`QualityTrendMonitor`** — emits `continue / stop / rollback /
+  request_approval` decisions from the iteration trend window. CLIs:
+  `trend:show / explain`.
+- **`ArchitectureDriftDetector`** — captures architecture fingerprints,
+  flags file-count explosions, dependency bloat, test/source imbalance,
+  oversized files, top-level dir sprawl. CLIs: `drift:check / compare`.
+- **`RegressionBisector`** — walks recorded iterations, identifies the
+  first iteration where score dropped or verification failed. CLIs:
+  `regression:bisect / explain`, `rollback:stable`.
+- **`SelfImprovementEngine`** — hypothesis → experiment workflow.
+  Hypotheses touching `forbidden_self_modifications` paths are
+  auto-rejected at proposal time. Real mutation deferred to a later phase
+  by design. CLIs: `self:diagnose / hypotheses / experiment / accept /
+  reject / rollback`.
+- **`PlannerCalibrationEngine`** — records predicted vs actual deltas.
+  Surfaces worst-predicted categories. CLIs: `planner:calibrate / report
+  / explain`.
+- **`ExecutorReliabilityModel`** — per-provider per-task-category
+  reliability with `confidence_score`. CLIs: `executor:reliability /
+  recommend / compare`.
+- **`QAMemoryHealthManager`** — memory noise + usefulness scores,
+  duplicate cluster detection, merge/retire/promote suggestions, conservative
+  `qa:compact --apply`. CLIs: `qa:health / compact / merge / retire-stale
+  / report-memory`.
+- **`ReplaySystem`** — redacted reproducibility bundles. Source code is
+  NOT bundled — pair with `git_ref`. CLIs: `replay:create / run / explain`.
+- **`ScenarioStressTester`** — 15 named scenarios, run as a single command
+  to confirm defensive behavior. CLIs: `scenario:list / run`.
+- **`GovernanceDecisionLog`** — append-only JSONL of every autonomous
+  decision. CLIs: `governance:log / explain`.
+- **`HumanHandoffReport`** — structured handoff when stuck, with blockers,
+  recommended actions, files to review, commands to run. CLIs:
+  `handoff:create / show`.
+
+### v0.0.6 verification (this commit)
+
+- `pnpm test` → **62 files / 204 specs, all passing**
+- `pnpm demo2project self-check` → **all 19 Phase-6 probes green**
+- `pnpm demo2project scenario:run --all` → **15/15 scenarios pass**
 
 ### v0.0.5 — Cross-Project Generalization & Adaptive Learning
 
