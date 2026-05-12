@@ -1,9 +1,11 @@
 {
   "project_type": "node-cli",
+  "expected_project_type": "node-cli",
   "expected_standard": "node-cli",
   "expected_min_score_before": 15,
   "expected_max_score_before": 55,
   "expected_min_score_after": 55,
+  "expected_target_score_after": 60,
   "expected_max_iterations": 2,
   "defects": [
     { "id": "readme_lies_test", "category": "docs_lie", "severity": "high" },

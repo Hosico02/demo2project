@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated_at": "2026-05-12T09:28:25.142Z",
+  "updated_at": "1970-01-01T00:00:00.000Z",
   "assertions": [
     "missing_validation_after_code_change",
     "supervisor_accepts_unverified_result",
@@ -10,69 +10,5 @@
     "unsafe_command_detected",
     "regression_spec_not_updated_after_failure"
   ],
-  "cases": [
-    {
-      "id": "qa_mp2fh3jtye0fmn",
-      "title": "Command \"npm run\" failed 2 times in one iteration without root-cause analysis",
-      "category": "repeated_failure",
-      "severity": "high",
-      "frequency": 16,
-      "status": "active",
-      "project_type": [
-        "generic"
-      ],
-      "bug_source": {
-        "iteration_id": "iter_mp2fhc6cqy61ag",
-        "agent": "verifier",
-        "source": "iteration_event",
-        "related_files": []
-      },
-      "trigger_condition": "The same command failed repeatedly within a single iteration with no documented root cause.",
-      "human_flow": [
-        {
-          "step": 1,
-          "actor": "user",
-          "action": "requests a code-modifying change"
-        },
-        {
-          "step": 2,
-          "actor": "supervisor",
-          "action": "plans and assigns task"
-        },
-        {
-          "step": 3,
-          "actor": "executor",
-          "action": "applies the change"
-        },
-        {
-          "step": 4,
-          "actor": "executor",
-          "action": "must run at least one verification command"
-        },
-        {
-          "step": 5,
-          "actor": "supervisor",
-          "action": "checks evidence before marking task complete"
-        }
-      ],
-      "expected_behavior": "After two consecutive failures of the same command, the executor must summarize root cause before continuing.",
-      "actual_failure": "command \"npm run\" failed 2 times",
-      "regression_assertions": [
-        "if changed_files is non-empty then commands_run must be non-empty",
-        "if commands_run is empty then unable_to_verify_reason must be set",
-        "supervisor must not accept completed without verification_evidence"
-      ],
-      "reproduction_steps": [
-        "configure executor to return changed_files without commands_run",
-        "run a single iteration",
-        "inspect QA regression runner output"
-      ],
-      "suggested_test_type": "workflow_regression",
-      "fingerprint": "repeated_failure_without_root_cause:npm run",
-      "created_at": "2026-05-12T09:28:12.857Z",
-      "updated_at": "2026-05-12T09:28:25.141Z",
-      "last_seen_at": "2026-05-12T09:28:25.141Z",
-      "related_files": []
-    }
-  ]
+  "cases": []
 }

@@ -131,11 +131,27 @@ export type ProjectGrade =
   | 'project_ready_candidate'
   | 'production_ready_baseline';
 
+export interface ScoreEvidenceEntry {
+  dimension: keyof ScoreBreakdown;
+  claimed: boolean;
+  verified: boolean;
+  evidence_command?: string;
+  result?: 'passed' | 'failed' | 'unrun';
+  confidence: 'high' | 'medium' | 'low';
+  notes?: string;
+}
+
 export interface ProjectScore {
   total: number; // 0-100
   grade: ProjectGrade;
   breakdown: ScoreBreakdown;
   notes: string[];
+  /**
+   * Populated when scoring was run with `evidence_weighted=true`. Each entry
+   * records whether a dimension's claim was actually verified by running a
+   * command. Dimensions without verification get partial-credit only.
+   */
+  score_evidence?: ScoreEvidenceEntry[];
 }
 
 export interface GapFinding {
@@ -176,6 +192,15 @@ export interface QAHumanFlowStep {
 
 export type QAScope = 'repo' | 'workspace' | 'global';
 export type QAPortability = 'low' | 'medium' | 'high';
+/**
+ * Phase-3 lifecycle:
+ *   new       — generated, not yet observed in preflight
+ *   active    — referenced in preflight at least once
+ *   confirmed — true_positive_count >= 2 (prevented real failures)
+ *   noisy     — false_positive_count > true_positive_count and ≥ 3 sightings
+ *   retired   — manually retired OR auto-retired after staleness threshold
+ */
+export type QACaseLifecycle = 'new' | 'active' | 'confirmed' | 'noisy' | 'retired';
 
 export interface QACase {
   id: string;
@@ -183,9 +208,21 @@ export interface QACase {
   category: string;
   severity: Severity;
   frequency: number;
+  /** Legacy status field. New code should also set `lifecycle`. */
   status: 'active' | 'resolved' | 'archived';
+  /** Phase-3 lifecycle. Falls back to `status` if absent. */
+  lifecycle?: QACaseLifecycle;
   scope?: QAScope;
   portability?: QAPortability;
+  /** Computed quality signal: TP - FP, clamped. Higher is more useful. */
+  usefulness_score?: number;
+  true_positive_count?: number;
+  false_positive_count?: number;
+  last_triggered_at?: string;
+  last_prevented_failure_at?: string;
+  manual_review_required?: boolean;
+  retired_at?: string;
+  retirement_reason?: string;
   project_type: string[];
   bug_source: {
     iteration_id: string;

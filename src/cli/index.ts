@@ -13,6 +13,9 @@ import { benchmark } from './commands/benchmark.js';
 import { rollback } from './commands/rollback.js';
 import { claudeInstallHooks } from './commands/claudeInstallHooks.js';
 import { docsTruth } from './commands/docsTruth.js';
+import { evaluate } from './commands/evaluate.js';
+import { qaAudit, qaRetire, qaPromote } from './commands/qaAudit.js';
+import { providerTest } from './commands/providerTest.js';
 
 interface ParsedArgs {
   command: string;
@@ -70,7 +73,12 @@ Commands:
                 [--system-root <path>]
   self-check                      Run analyze/gap/regression against this repo
   self-iterate                    Read-only: print the plan this repo would apply to itself
-  benchmark                       Score every project under examples/ and print a table
+  benchmark                       Score every project under benchmarks/ + examples/
+  eval        --all | --case <n>  A/B comparison: naive baseline vs Demo2Project loop
+  qa:audit    --project <path>    Re-evaluate QA case lifecycles; --apply persists
+  qa:retire   --project <path> --case <id> [--reason <r>]
+  qa:promote  --project <path> --case <id>
+  provider:test --provider <name> Exercise a provider against a synthetic task
 
 Examples:
   demo2project analyze --project examples/bad-demo
@@ -110,6 +118,16 @@ async function main(): Promise<number> {
       return claudeInstallHooks(args.flags);
     case 'docs:truth':
       return docsTruth(args.flags);
+    case 'eval':
+      return evaluate(args.flags);
+    case 'qa:audit':
+      return qaAudit(args.flags);
+    case 'qa:retire':
+      return qaRetire(args.flags);
+    case 'qa:promote':
+      return qaPromote(args.flags);
+    case 'provider:test':
+      return providerTest(args.flags);
     case 'help':
     case '--help':
     case '-h':

@@ -188,11 +188,33 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ## Roadmap
 
-v0.0.2 = Phase-2 hardening / anti-trap optimization on top of v0.0.1's
-runnable closed loop. v0.0.1 was about proving the loop works at all; v0.0.2
-is about making it hard to bypass.
+v0.0.3 = Phase-3 evaluation & proof. v0.0.1 proved the loop runs; v0.0.2
+made it hard to bypass; **v0.0.3 proves it actually outperforms a naive
+agent on the same fixtures**.
 
-### What hardened in v0.0.2
+### v0.0.3 — Evaluation & Proof
+
+- **A/B framework** — `eval --all | --case <name>` runs every benchmark
+  through BOTH paths (`NaiveBaselineProvider` vs Demo2Project Supervisor loop)
+  and emits a JSON + Markdown report under `reports/evaluation/`.
+- **Headline result (8 cases):** Demo2Project wins **8/8**, average score
+  Δ **+18.1**, baseline `unverified_changes` 3–4 per case vs Demo2Project's **0**.
+- **Evidence-weighted scoring** — `scoreProjectWithEvidence` penalizes README
+  claims without matching scripts, declared-but-unrun test commands, and CI
+  configs that have nothing to run. Prevents "drop empty files for free score".
+- **QA case lifecycle** — `new` → `active` → `confirmed` (TP ≥ 2) → `noisy`
+  (FP > TP, n ≥ 3) → `retired`. CLI: `qa:audit`, `qa:retire`, `qa:promote`.
+- **8 benchmarks** — bad-node-cli, bad-ts-library, bad-react-app, bad-next-app,
+  bad-python-cli, bad-fastapi-api, bad-docs-project, bad-monorepo — each with
+  `known_defects.json` + `evaluation_notes.md`.
+- **ClaudeCliProvider contract test** — `provider:test --provider claude-cli`
+  drives the adapter; tests verify it degrades gracefully when the binary is
+  missing.
+- **+25 tests** — `evidenceWeightedScorer`, `scoreGamingPrevention`,
+  `qaCaseLifecycle`, `regressionEffectiveness`, `evaluationRunner`,
+  `benchmarkSuite`, `claudeCliProvider`.
+
+### v0.0.2 — Phase-2 hardening
 
 - **Repositioned**: README and `docs/architecture.md` make explicit that
   Demo2Project is a **control layer**, not a coding agent. Coding agents are
