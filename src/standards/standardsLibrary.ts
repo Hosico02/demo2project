@@ -14,42 +14,59 @@ interface RawStandard extends ProjectStandard {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// In tests this is src/standards; in production it's dist/standards. We try
-// both — package.json postbuild copies the json files into dist/, but if
-// that ever fails the src location is a safe fallback.
-const CANDIDATE_DIRS = [
-  path.resolve(here, 'library'),
-  path.resolve(here, '..', '..', 'src', 'standards', 'library'),
+// v0.0.5: the standards live in two folders — base/ and archetypes/ — with
+// an optional learned/ overlay for workspace-level adjustments.
+const CANDIDATE_ROOTS = [
+  path.resolve(here),
+  path.resolve(here, '..', '..', 'src', 'standards'),
 ];
 
-async function libraryDir(): Promise<string> {
-  for (const d of CANDIDATE_DIRS) {
-    try {
-      await fs.access(d);
-      return d;
-    } catch { /* try next */ }
+async function findFile(name: string): Promise<string | null> {
+  for (const root of CANDIDATE_ROOTS) {
+    for (const sub of ['archetypes', 'base']) {
+      const candidate = path.join(root, sub, `${name}.standard.json`);
+      try { await fs.access(candidate); return candidate; } catch { /* next */ }
+    }
   }
-  return CANDIDATE_DIRS[0]!;
+  return null;
+}
+
+async function findOverride(name: string): Promise<Partial<ProjectStandard> | null> {
+  for (const root of CANDIDATE_ROOTS) {
+    const file = path.join(root, 'learned', 'workspace-standard-overrides.json');
+    const data = await readJsonSafe<Record<string, Partial<ProjectStandard>>>(file);
+    if (data && data[name]) return data[name]!;
+  }
+  return null;
+}
+
+async function listAllRoots(): Promise<string[]> {
+  const out: Set<string> = new Set();
+  for (const root of CANDIDATE_ROOTS) {
+    for (const sub of ['archetypes', 'base']) {
+      try {
+        const entries = await fs.readdir(path.join(root, sub));
+        for (const e of entries) if (e.endsWith('.standard.json')) out.add(e.replace('.standard.json', ''));
+      } catch { /* skip */ }
+    }
+  }
+  return Array.from(out).sort();
 }
 
 export async function loadStandard(name: string): Promise<ProjectStandard | null> {
-  const dir = await libraryDir();
-  const p = path.join(dir, `${name}.standard.json`);
+  const p = await findFile(name);
+  if (!p) return null;
   const raw = await readJsonSafe<RawStandard>(p);
-  return raw ? stripName(raw) : null;
+  if (!raw) return null;
+  const base = stripName(raw);
+  // apply workspace overrides if any
+  const override = await findOverride(name);
+  if (!override) return base;
+  return { ...base, ...override } as ProjectStandard;
 }
 
 export async function listStandards(): Promise<string[]> {
-  try {
-    const dir = await libraryDir();
-    const entries = await fs.readdir(dir);
-    return entries
-      .filter((f) => f.endsWith('.standard.json'))
-      .map((f) => f.replace('.standard.json', ''))
-      .sort();
-  } catch {
-    return [];
-  }
+  return listAllRoots();
 }
 
 /**
@@ -59,15 +76,26 @@ export async function listStandards(): Promise<string[]> {
 export async function selectStandardForSnapshot(
   snapshot: ProjectSnapshot,
 ): Promise<{ standard: ProjectStandard; name: string }> {
+  // v0.0.5: prefer the ProjectArchetypeDetector for fidelity, but keep this
+  // function available so callers that already have a snapshot don't have to
+  // re-run the full detector.
   const fws = snapshot.detected_frameworks;
   const lang = snapshot.detected_language;
   const files = snapshot.important_files;
   const ordered: string[] = [];
 
+  // monorepo signal — strong, comes first
+  if (files.includes('pnpm-workspace.yaml') || files.includes('turbo.json') || files.includes('nx.json') || files.includes('lerna.json')) {
+    ordered.push('monorepo');
+  }
   if (fws.includes('next')) ordered.push('nextjs-app');
   if (fws.includes('react')) ordered.push('react-app');
   if (fws.includes('fastapi') || files.some((f) => f.startsWith('app/main'))) ordered.push('fastapi-api');
-  if (lang === 'python') ordered.push('python-package');
+  if (lang === 'python') {
+    // python-cli vs python-package: prefer cli if entry-shape detected
+    if (files.some((f) => /(^|\/)main\.py$/.test(f) || /(^|\/)cli\.py$/.test(f))) ordered.push('python-cli');
+    ordered.push('python-package');
+  }
   if (lang === 'typescript' && (files.includes('tsconfig.json') || fws.includes('vitest') || fws.includes('jest'))) {
     ordered.push('typescript-library');
   }
@@ -85,7 +113,6 @@ export async function selectStandardForSnapshot(
     const std = await loadStandard(name);
     if (std) return { standard: std, name };
   }
-  // Should never happen — generic-project must exist — but be defensive.
   throw new Error('no standards available (generic-project missing)');
 }
 

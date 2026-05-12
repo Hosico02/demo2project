@@ -22,6 +22,18 @@ import { compareExecutors } from './commands/compareExecutors.js';
 import { longRun } from './commands/longRun.js';
 import { approvalsList, approvalsApprove, approvalsReject } from './commands/approvals.js';
 import { selfIterateSandbox } from './commands/selfIterateSandbox.js';
+import { archetype } from './commands/archetype.js';
+import { standardsList, standardsExplain, standardsValidate } from './commands/standards.js';
+import { qaTransfer, qaApplicable } from './commands/qaTransfer.js';
+import { corpusAddCmd, corpusListCmd, corpusEvaluateCmd, corpusRemoveCmd, corpusReportCmd } from './commands/corpus.js';
+import { learnWorkspaceCmd, learnProjectCmd, learnPatternsCmd, learnExplainCmd } from './commands/learn.js';
+import { learningCandidatesCmd, learningApproveCmd, learningRejectCmd, learningExplainCmd } from './commands/learningGovernance.js';
+import { similar } from './commands/similar.js';
+import { standardsSuggestCmd, standardsApproveCmd, standardsRejectCmd, standardsSuggestionsListCmd } from './commands/standardsFeedback.js';
+import { generalize } from './commands/generalize.js';
+import { workspaceReport } from './commands/workspaceReport.js';
+import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
+import { redactTest } from './commands/redactTest.js';
 
 interface ParsedArgs {
   command: string;
@@ -152,6 +164,65 @@ async function main(): Promise<number> {
       return approvalsReject(args.flags);
     case 'self-iterate-sandbox':
       return selfIterateSandbox(args.flags);
+    // --- Phase 5 ---
+    case 'archetype':
+      return archetype(args.flags);
+    case 'standards:list':
+      return standardsList(args.flags);
+    case 'standards:explain':
+      return standardsExplain(args.flags);
+    case 'standards:validate':
+      return standardsValidate(args.flags);
+    case 'standards:suggest-updates':
+      return standardsSuggestCmd(args.flags);
+    case 'standards:approve-update':
+      return standardsApproveCmd(args.flags);
+    case 'standards:reject-update':
+      return standardsRejectCmd(args.flags);
+    case 'standards:suggestions':
+      return standardsSuggestionsListCmd(args.flags);
+    case 'qa:transfer':
+      return qaTransfer(args.flags);
+    case 'qa:applicable':
+      return qaApplicable(args.flags);
+    case 'corpus:add':
+      return corpusAddCmd(args.flags);
+    case 'corpus:list':
+      return corpusListCmd(args.flags);
+    case 'corpus:evaluate':
+      return corpusEvaluateCmd(args.flags);
+    case 'corpus:remove':
+      return corpusRemoveCmd(args.flags);
+    case 'corpus:report':
+      return corpusReportCmd(args.flags);
+    case 'learn:workspace':
+      return learnWorkspaceCmd(args.flags);
+    case 'learn:project':
+      return learnProjectCmd(args.flags);
+    case 'learn:patterns':
+      return learnPatternsCmd(args.flags);
+    case 'learn:explain':
+      return learnExplainCmd(args.flags);
+    case 'learning:candidates':
+      return learningCandidatesCmd(args.flags);
+    case 'learning:approve':
+      return learningApproveCmd(args.flags);
+    case 'learning:reject':
+      return learningRejectCmd(args.flags);
+    case 'learning:explain':
+      return learningExplainCmd(args.flags);
+    case 'similar':
+      return similar(args.flags);
+    case 'generalize':
+      return generalize(args.flags);
+    case 'report:workspace':
+      return workspaceReport(args.flags);
+    case 'taxonomy:list':
+      return taxonomyList(args.flags);
+    case 'taxonomy:explain':
+      return taxonomyExplain(args.flags);
+    case 'redact:test':
+      return redactTest(args.flags);
     case 'help':
     case '--help':
     case '-h':

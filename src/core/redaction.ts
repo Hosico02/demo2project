@@ -8,7 +8,7 @@
  */
 
 const SECRET_KEY_NAMES =
-  '(api[_-]?key|secret|token|password|passwd|pwd|access[_-]?key|private[_-]?key|client[_-]?secret|auth|bearer|session[_-]?id|cookie)';
+  '(api[_-]?key|secret|token|password|passwd|pwd|access[_-]?key|private[_-]?key|client[_-]?secret|auth|bearer|session[_-]?id|cookie|database[_-]?url|db[_-]?url|smtp[_-]?password)';
 
 const PATTERNS: { pattern: RegExp; replace: string }[] = [
   // KEY=VALUE in env/shell style
@@ -38,6 +38,33 @@ const PATTERNS: { pattern: RegExp; replace: string }[] = [
   {
     pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     replace: '***REDACTED_PRIVATE_KEY***',
+  },
+  // --- Phase 5: privacy-class patterns (paths / emails / etc.) ---
+  // email addresses
+  {
+    pattern: /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g,
+    replace: '***REDACTED_EMAIL***',
+  },
+  // absolute Unix-like local paths (project-specific home dirs).
+  // \b does not match between two non-word chars (' ' and '/'), so use a
+  // negative lookbehind for word chars instead.
+  {
+    pattern: /(?<![A-Za-z0-9_])\/Users\/[A-Za-z0-9_\-]+/g,
+    replace: '/Users/***',
+  },
+  {
+    pattern: /(?<![A-Za-z0-9_])\/home\/[A-Za-z0-9_\-]+/g,
+    replace: '/home/***',
+  },
+  // IPv4 addresses
+  {
+    pattern: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g,
+    replace: '***REDACTED_IP***',
+  },
+  // db URLs (postgres://user:pass@host/db, mongodb://, mysql://)
+  {
+    pattern: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s'"<>]+/gi,
+    replace: '***REDACTED_DB_URL***',
   },
 ];
 

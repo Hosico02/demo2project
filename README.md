@@ -188,9 +188,58 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ## Roadmap
 
-v0.0.4 = Phase-4 real-world generalization & control. v0.0.3 proved the
-loop outperforms a naive simulated agent; **v0.0.4 verifies it can drive
-the real Claude CLI subprocess and gracefully refuse low-confidence output**.
+v0.0.5 = Phase-5 cross-project generalization & adaptive learning. v0.0.4
+proved we can drive a real Claude CLI on benchmark fixtures; **v0.0.5
+proves the same machinery generalizes to arbitrary unseen real projects**.
+
+### v0.0.5 — Cross-Project Generalization & Adaptive Learning
+
+- **`ProjectArchetypeDetector`** — 11 archetypes (node-cli, typescript-library,
+  react-app, nextjs-app, python-cli, python-package, fastapi-api, monorepo,
+  docs-only-project, agent-framework, unknown) with explainable weighted-signal
+  scoring. CLI: `archetype --project`.
+- **Adaptive standards** — reorganized to `src/standards/{base,archetypes,learned}/`.
+  `AdaptiveProjectStandardManager` auto-selects per archetype, with optional
+  `learned/workspace-standard-overrides.json` overlay. CLIs:
+  `standards:list / explain / validate`.
+- **Transferable QA patterns** — `transferability` field on `QACase`
+  (`applicable_archetypes` / `excluded_archetypes` / `required_project_signals`
+  / `excluded_project_signals` / `portability_score`). `TransferabilityEvaluator`
+  filters preflight per archetype. CLIs: `qa:transfer`, `qa:applicable`.
+- **Project corpus** — local-only index of evaluated projects with
+  path-hash + redaction. CLIs: `corpus:add / list / evaluate / remove / report`.
+- **Cross-project learning** — `CrossProjectLearningEngine` aggregates
+  anonymized reports → `LearningPattern[]`. CLIs: `learn:workspace / project
+  / patterns / explain`.
+- **Learning governance** — promotion candidates (repo→workspace,
+  workspace→global) with manual approval gate for high-risk. CLIs:
+  `learning:candidates / approve / reject / explain`.
+- **Standard feedback loop** — `standards:suggest-updates`, with
+  approve/reject CLIs.
+- **Generalization evaluator** — `generalize --all [--report]`
+  aggregates per-archetype success rate, weakest archetypes, recommended
+  standard updates.
+- **Project similarity** — Jaccard over deterministic signals.
+  `similar --project` returns ranked historical-project hits.
+- **Adaptive QA preflight** — `QAAgent.preflight` now detects archetype
+  and filters cases via `TransferabilityEvaluator`. Adds `archetype` /
+  `applicable` / `skipped` to the preflight result.
+- **Workspace dashboard** — `report:workspace` emits 6 markdown reports
+  to `reports/workspace/` (generalization, qa-memory, standard-feedback,
+  corpus, executor-comparison).
+- **Failure taxonomy** — fixed enum of ~35 categories under 8 buckets;
+  shared join key for QA cases, gap findings, learning patterns. CLIs:
+  `taxonomy:list / explain`.
+- **Privacy redaction enhanced** — emails, `/Users/<n>` & `/home/<n>`
+  paths, IPv4, DB URLs. CLI: `redact:test`.
+
+### Generalization proof
+
+Pointing v0.0.5 at unseen sibling project `/Users/mack/Desktop/Hosico/Works/Work/mentor`
+(never in any benchmark): `archetype --project` correctly returned
+`python-package` and selected the matching standard. Three unseen Python
+projects classified consistently. Corpus entry persisted with the absolute
+path redacted to `/Users/***/Desktop/Hosico/Works/Work/mentor`.
 
 ### v0.0.4 — Real-World Generalization & Control
 

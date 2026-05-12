@@ -5,6 +5,8 @@ import { dedupeCases } from './QADeduplicator.js';
 import type { MemoryAgent } from '../agents/MemoryAgent.js';
 import type { EventStore } from '../core/eventStore.js';
 import { loadAllScopes, selectForSnapshot } from './QAMemoryScopes.js';
+import { detectArchetype } from '../core/projectArchetypeDetector.js';
+import { applicableForArchetype, evaluateTransfer } from './QATransferability.js';
 
 /**
  * QAAgent: learn from iteration events, persist QA cases, and maintain
@@ -30,7 +32,13 @@ export class QAAgent {
     snapshot: ProjectSnapshot,
     eventStore: EventStore,
     opts: { systemRoot?: string } = {},
-  ): Promise<{ active: number; scopes: { global: number; workspace: number; repo: number } }> {
+  ): Promise<{
+    active: number;
+    scopes: { global: number; workspace: number; repo: number };
+    archetype?: string;
+    applicable: number;
+    skipped: number;
+  }> {
     let scoped = { global: [] as QACase[], workspace: [] as QACase[], repo: [] as QACase[] };
     if (opts.systemRoot) {
       scoped = await loadAllScopes({
@@ -38,25 +46,37 @@ export class QAAgent {
         systemRoot: opts.systemRoot,
       });
     }
-    const repoLegacy = await this.store.loadCases(); // existing per-project store
+    const repoLegacy = await this.store.loadCases();
     const repoMerged = dedupeCases([...scoped.repo, ...repoLegacy]);
-    const all = selectForSnapshot({ global: scoped.global, workspace: scoped.workspace, repo: repoMerged }, snapshot);
-    const active = all.filter((c) => c.status === 'active');
+    const allLegacy = selectForSnapshot({ global: scoped.global, workspace: scoped.workspace, repo: repoMerged }, snapshot);
+    const activeLegacy = allLegacy.filter((c) => c.status === 'active');
+
+    // Phase-5: adaptive preflight uses archetype + transferability evaluator
+    const archetype = (await detectArchetype(snapshot.project_path)).primary;
+    const applicable = applicableForArchetype(activeLegacy, archetype);
+    const skipped = activeLegacy.filter((c) => !applicable.includes(c));
 
     await eventStore.append({
       iteration_id: iterationId,
       agent: 'qa',
       event_type: 'note',
       severity: 'info',
-      message: `qa preflight: ${active.length} active case(s) across scopes (g=${scoped.global.length} w=${scoped.workspace.length} r=${repoMerged.length})`,
+      message: `qa preflight (adaptive): archetype=${archetype.id} applicable=${applicable.length}/${activeLegacy.length}`,
       metadata: {
-        active_fingerprints: active.map((c) => c.fingerprint),
+        archetype: archetype.id,
+        archetype_confidence: archetype.confidence,
+        applicable_fingerprints: applicable.map((c) => c.fingerprint),
+        skipped_reasons: skipped.map((c) => ({ fingerprint: c.fingerprint, reason: evaluateTransfer(c, archetype).reason })),
         scope_counts: { global: scoped.global.length, workspace: scoped.workspace.length, repo: repoMerged.length },
       },
     });
+
     return {
-      active: active.length,
+      active: applicable.length,
       scopes: { global: scoped.global.length, workspace: scoped.workspace.length, repo: repoMerged.length },
+      archetype: archetype.id,
+      applicable: applicable.length,
+      skipped: skipped.length,
     };
   }
 

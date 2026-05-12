@@ -29,7 +29,9 @@ async function copyDir(src, dst) {
 }
 
 const pairs = [
-  ['src/standards/library', 'dist/standards/library'],
+  ['src/standards/base', 'dist/standards/base'],
+  ['src/standards/archetypes', 'dist/standards/archetypes'],
+  ['src/standards/learned', 'dist/standards/learned'],
   ['templates', 'dist/templates'],
 ];
 let copied = 0;

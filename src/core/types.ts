@@ -223,6 +223,19 @@ export interface QACase {
   manual_review_required?: boolean;
   retired_at?: string;
   retirement_reason?: string;
+  /** Phase-5 transferability metadata. */
+  transferability?: {
+    scope: QAScope;
+    portability_score: number; // 0..1
+    applicable_archetypes: string[];
+    excluded_archetypes: string[];
+    required_project_signals: string[];
+    excluded_project_signals: string[];
+    minimum_confidence: 'low' | 'medium' | 'high';
+    examples_where_triggered: string[];
+    examples_where_prevented_failure: string[];
+    false_positive_contexts: string[];
+  };
   project_type: string[];
   bug_source: {
     iteration_id: string;
