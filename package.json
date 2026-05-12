@@ -1,0 +1,36 @@
+{
+  "name": "demo2project",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Iteratively turn demos into production-ready projects via a multi-agent loop with QA learning.",
+  "license": "MIT",
+  "bin": {
+    "demo2project": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo2project": "node dist/cli/index.js",
+    "analyze": "node dist/cli/index.js analyze",
+    "gap": "node dist/cli/index.js gap",
+    "plan": "node dist/cli/index.js plan",
+    "iterate": "node dist/cli/index.js iterate",
+    "qa:preflight": "node dist/cli/index.js qa:preflight",
+    "qa:learn": "node dist/cli/index.js qa:learn",
+    "qa:regression": "node dist/cli/index.js qa:regression",
+    "self-check": "node dist/cli/index.js self-check",
+    "init": "node dist/cli/index.js init"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1",
+  "updated_at": "1970-01-01T00:00:00.000Z",
+  "assertions": [
+    "missing_validation_after_code_change",
+    "supervisor_accepts_unverified_result",
+    "repeated_failure_without_root_cause",
+    "test_file_created_but_not_runnable",
+    "docs_claim_without_evidence",
+    "unsafe_command_detected",
+    "regression_spec_not_updated_after_failure"
+  ],
+  "cases": []
+}

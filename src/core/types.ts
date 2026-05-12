@@ -1,0 +1,267 @@
+/**
+ * Core types for Demo2Project.
+ *
+ * Everything is plain TypeScript — no zod, no runtime schema deps — to keep
+ * the dependency surface minimal. Validation happens at boundaries via small
+ * narrow helpers in src/utils.
+ */
+
+export type Severity = 'blocker' | 'high' | 'medium' | 'low' | 'info';
+export type TaskStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+export type AgentName =
+  | 'supervisor'
+  | 'analyzer'
+  | 'planner'
+  | 'executor'
+  | 'verifier'
+  | 'reviewer'
+  | 'memory'
+  | 'qa';
+
+// --- Iteration events ----------------------------------------------------
+
+export interface IterationEvent {
+  id: string;
+  iteration_id: string;
+  timestamp: string;
+  agent: AgentName;
+  event_type:
+    | 'task_assigned'
+    | 'task_started'
+    | 'task_completed'
+    | 'task_failed'
+    | 'command_run'
+    | 'verification_passed'
+    | 'verification_failed'
+    | 'review_finding'
+    | 'qa_case_created'
+    | 'qa_case_updated'
+    | 'iteration_started'
+    | 'iteration_finished'
+    | 'note';
+  severity: Severity;
+  message: string;
+  command?: string;
+  command_exit_code?: number;
+  files_changed?: string[];
+  raw_output?: string; // truncated
+  metadata?: Record<string, unknown>;
+}
+
+// --- Tasks & results -----------------------------------------------------
+
+export interface AgentTask {
+  id: string;
+  iteration_id: string;
+  assigned_to: AgentName;
+  title: string;
+  description: string;
+  acceptance_criteria: string[];
+  expected_changed_files: string[];
+  verification_commands: string[];
+  priority: Severity;
+  status: TaskStatus;
+}
+
+export interface VerificationResult {
+  command: string;
+  exit_code: number;
+  stdout_summary: string;
+  stderr_summary: string;
+  passed: boolean;
+  duration_ms: number;
+  failure_reason?: string;
+}
+
+export interface AgentResult {
+  task_id: string;
+  agent: AgentName;
+  status: TaskStatus;
+  summary: string;
+  changed_files: string[];
+  commands_run: string[];
+  verification_evidence: VerificationResult[];
+  unable_to_verify_reason?: string;
+  failures: string[];
+  risks: string[];
+  next_steps: string[];
+}
+
+// --- Project snapshot, score, gaps, plan ---------------------------------
+
+export interface ProjectSnapshot {
+  project_path: string;
+  detected_language: string;
+  detected_frameworks: string[];
+  package_manager: 'pnpm' | 'npm' | 'yarn' | 'bun' | 'pip' | 'poetry' | 'unknown';
+  test_commands: string[];
+  build_commands: string[];
+  start_commands: string[];
+  important_files: string[];
+  missing_files: string[];
+  dependency_summary: {
+    runtime: number;
+    dev: number;
+    has_lockfile: boolean;
+  };
+  timestamp: string;
+}
+
+export interface ScoreBreakdown {
+  structure_score: number;
+  test_score: number;
+  build_score: number;
+  runtime_score: number;
+  docs_score: number;
+  config_score: number;
+  maintainability_score: number;
+  safety_score: number;
+  agent_process_score: number;
+}
+
+export type ProjectGrade =
+  | 'raw_demo'
+  | 'working_demo'
+  | 'structured_prototype'
+  | 'project_ready_candidate'
+  | 'production_ready_baseline';
+
+export interface ProjectScore {
+  total: number; // 0-100
+  grade: ProjectGrade;
+  breakdown: ScoreBreakdown;
+  notes: string[];
+}
+
+export interface GapFinding {
+  id: string;
+  category: string;
+  severity: Severity;
+  message: string;
+  why_it_matters: string;
+  suggested_fix: string;
+  related_files: string[];
+}
+
+export interface GapReport {
+  project_snapshot: ProjectSnapshot;
+  score: ProjectScore;
+  findings: GapFinding[];
+  blockers: GapFinding[];
+  recommendations: string[];
+}
+
+export interface IterationPlan {
+  iteration_id: string;
+  goal: string;
+  project_path: string;
+  tasks: AgentTask[];
+  risk_level: Severity;
+  expected_score_delta: number;
+  stop_conditions: string[];
+}
+
+// --- QA ------------------------------------------------------------------
+
+export interface QAHumanFlowStep {
+  step: number;
+  actor: string;
+  action: string;
+}
+
+export interface QACase {
+  id: string;
+  title: string;
+  category: string;
+  severity: Severity;
+  frequency: number;
+  status: 'active' | 'resolved' | 'archived';
+  project_type: string[];
+  bug_source: {
+    iteration_id: string;
+    agent: AgentName | 'unknown';
+    source: string;
+    related_files: string[];
+  };
+  trigger_condition: string;
+  human_flow: QAHumanFlowStep[];
+  expected_behavior: string;
+  actual_failure: string;
+  regression_assertions: string[];
+  reproduction_steps: string[];
+  suggested_test_type: string;
+  fingerprint: string;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string;
+  related_files: string[];
+}
+
+export interface QARegressionSpec {
+  version: string;
+  updated_at: string;
+  assertions: string[];
+  cases: QACase[];
+}
+
+export interface QAAssertionResult {
+  assertion: string;
+  passed: boolean;
+  message: string;
+  related_events: string[];
+}
+
+// --- Project standard ----------------------------------------------------
+
+export interface QualityGate {
+  name: string;
+  command?: string;
+  required: boolean;
+  description: string;
+}
+
+export interface ScoringRule {
+  dimension: keyof ScoreBreakdown;
+  weight: number;
+}
+
+export interface ProjectStandard {
+  required_files: string[];
+  recommended_files: string[];
+  required_commands: string[]; // e.g. "test", "build"
+  quality_gates: QualityGate[];
+  scoring_rules: ScoringRule[];
+  forbidden_patterns: string[]; // regex strings
+  verification_policy: {
+    require_evidence_when_files_changed: boolean;
+    max_command_timeout_ms: number;
+    forbid_unverified_completion: boolean;
+  };
+}
+
+// --- Iteration summary ---------------------------------------------------
+
+export interface IterationSummary {
+  iteration_id: string;
+  user_goal: string;
+  project_path: string;
+  project_snapshot: ProjectSnapshot;
+  gap_report: GapReport;
+  iteration_plan: IterationPlan;
+  assigned_tasks: AgentTask[];
+  executor_results: AgentResult[];
+  changed_files: string[];
+  verification_results: VerificationResult[];
+  reviewer_findings: string[];
+  qa_cases_created_or_updated: string[];
+  project_score_before: ProjectScore;
+  project_score_after: ProjectScore;
+  next_iteration_recommendations: string[];
+  started_at: string;
+  finished_at: string;
+}
