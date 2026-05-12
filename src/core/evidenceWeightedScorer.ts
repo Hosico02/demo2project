@@ -10,6 +10,7 @@ import type {
 import { scoreProject } from './projectScorer.js';
 import { runCommand } from './commandRunner.js';
 import { runDocsTruth } from './docsTruth.js';
+import { runAntiGaming, type AntiGamingFinding } from './antiGamingScorer.js';
 import { fileExists } from '../utils/fs.js';
 
 /**
@@ -50,12 +51,29 @@ export async function scoreProjectWithEvidence(
   snapshot: ProjectSnapshot,
   standard: ProjectStandard,
   opts: EvidenceWeightedOptions = {},
-): Promise<ProjectScore> {
+): Promise<ProjectScore & { anti_gaming_findings?: AntiGamingFinding[]; confidence_adjusted_score?: number }> {
   const base = await scoreProject(snapshot, standard);
   const breakdown: ScoreBreakdown = { ...base.breakdown };
   const evidence: ScoreEvidenceEntry[] = [];
   const notes: string[] = [...base.notes];
   const projectPath = snapshot.project_path;
+
+  // Anti-gaming detectors — apply suggested penalties to the named dimension.
+  const antiGaming = await runAntiGaming(snapshot);
+  const breakdownAsRecord = breakdown as unknown as Record<string, number>;
+  for (const f of antiGaming) {
+    const before = breakdownAsRecord[f.dimension] ?? 0;
+    breakdownAsRecord[f.dimension] = Math.max(0, before - f.suggested_penalty);
+    notes.push(`anti-gaming/${f.detector}: ${f.message} (-${f.suggested_penalty})`);
+    evidence.push({
+      dimension: f.dimension,
+      claimed: true,
+      verified: false,
+      result: 'failed',
+      confidence: 'high',
+      notes: `${f.detector}: ${f.message}`,
+    });
+  }
 
   // --- docs claims (always run; cheap, no shell) ---
   const docs = await runDocsTruth(projectPath);
@@ -177,12 +195,17 @@ export async function scoreProjectWithEvidence(
   });
 
   const total = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
+  // confidence-adjusted: an extra haircut proportional to high-severity findings
+  const blockerWeight = antiGaming.filter((f) => f.severity === 'blocker').length * 4;
+  const confidence_adjusted_score = Math.max(0, total - blockerWeight);
   return {
     total,
     grade: gradeFor(total),
     breakdown,
     notes,
     score_evidence: evidence,
+    anti_gaming_findings: antiGaming,
+    confidence_adjusted_score,
   };
 }
 

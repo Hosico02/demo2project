@@ -52,20 +52,26 @@ interface BenchmarkRow {
 
 export async function benchmark(flags: Record<string, string | boolean>): Promise<number> {
   const systemRoot = path.resolve(new URL('../../..', import.meta.url).pathname);
-  const benchDir = path.join(systemRoot, 'benchmarks');
+  const publicDir = path.join(systemRoot, 'benchmarks', 'public');
+  const hiddenDir = path.join(systemRoot, 'benchmarks', 'hidden');
   const examplesDir = path.join(systemRoot, 'examples');
   const onlyCase = flagString(flags, 'case');
+  const includeHidden = flags['include-hidden'] === true || flags['include-hidden'] === 'true';
   const maxIter = flagNumber(flags, 'max-iterations', 3);
 
-  // Gather candidate cases: every subdir under benchmarks/ (and examples/ if no benchmarks)
+  // Gather candidate cases: benchmarks/public/* always; benchmarks/hidden/* opt-in;
+  // examples/* as legacy fallback so older fixtures still work.
   const sources: string[] = [];
-  for (const root of [benchDir, examplesDir]) {
+  const roots: string[] = [publicDir, examplesDir];
+  if (includeHidden) roots.push(hiddenDir);
+  for (const root of roots) {
     let entries: string[] = [];
     try { entries = await fs.readdir(root); } catch { continue; }
     for (const e of entries) {
       const p = path.join(root, e);
       const st = await fs.stat(p).catch(() => null);
       if (!st?.isDirectory()) continue;
+      if (e === 'public' || e === 'hidden') continue; // skip the parent placeholders
       if (onlyCase && e !== onlyCase) continue;
       sources.push(p);
     }

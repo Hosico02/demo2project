@@ -28,7 +28,7 @@ interface KnownDefects {
 describe('Benchmark suite invariants', () => {
   it('all expected cases exist with the canonical schema', async () => {
     for (const c of EXPECTED_CASES) {
-      const dir = path.join(repoRoot, 'benchmarks', c);
+      const dir = path.join(repoRoot, 'benchmarks', 'public', c);
       const def = await readJsonSafe<KnownDefects>(path.join(dir, 'known_defects.json'));
       expect(def, `${c} known_defects.json`).not.toBeNull();
       expect(Array.isArray(def!.defects), `${c} defects must be an array`).toBe(true);
@@ -41,7 +41,7 @@ describe('Benchmark suite invariants', () => {
 
   it('every defect has either defect_id (new schema) or id (legacy)', async () => {
     for (const c of EXPECTED_CASES) {
-      const dir = path.join(repoRoot, 'benchmarks', c);
+      const dir = path.join(repoRoot, 'benchmarks', 'public', c);
       const def = await readJsonSafe<KnownDefects>(path.join(dir, 'known_defects.json'));
       for (const d of def!.defects) {
         expect(d.defect_id ?? d.id, `${c} defect missing id`).toBeTruthy();

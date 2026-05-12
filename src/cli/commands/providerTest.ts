@@ -20,7 +20,9 @@ import { flagString } from './_shared.js';
  */
 export async function providerTest(flags: Record<string, string | boolean>): Promise<number> {
   const name = flagString(flags, 'provider', 'mock')!;
-  const dryRun = flags['dry-run'] === true || flags['dry-run'] === 'true' || true; // always dry-run by default
+  // Default = dry-run. Use --enabled to drive real subprocess execution.
+  const enabledFlag = flags.enabled === true || flags.enabled === 'true';
+  const dryRun = !enabledFlag;
   let provider: AgentProvider;
   switch (name) {
     case 'mock':
@@ -36,13 +38,11 @@ export async function providerTest(flags: Record<string, string | boolean>): Pro
       provider = new NaiveBaselineProvider();
       break;
     case 'claude-code':
-    case 'claude-cli':
-      // The ClaudeCodeProvider already degrades when DEMO2PROJECT_CLAUDE_CODE
-      // is not set. We force `enabled:false` for dry-run; the provider will
-      // then return a skipped result with `provider_not_enabled` reason,
-      // proving the adapter is wired but not actually shelling out.
-      provider = new ClaudeCodeProvider({ enabled: !dryRun });
+    case 'claude-cli': {
+      const timeoutMs = typeof flags['timeout-ms'] === 'string' ? Number(flags['timeout-ms']) : 90_000;
+      provider = new ClaudeCodeProvider({ enabled: !dryRun, timeoutMs });
       break;
+    }
     case 'codex': provider = CodexProvider(); break;
     case 'devin': provider = DevinProvider(); break;
     case 'openhands': provider = OpenHandsProvider(); break;

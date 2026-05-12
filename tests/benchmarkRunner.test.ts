@@ -18,7 +18,7 @@ const cases = [
 describe('Benchmark suite', () => {
   it('every benchmark case has package.json + known_defects.json', async () => {
     for (const c of cases) {
-      const dir = path.join(repoRoot, 'benchmarks', c);
+      const dir = path.join(repoRoot, 'benchmarks', 'public', c);
       const pkg = await readJsonSafe(path.join(dir, 'package.json'));
       const def = await readJsonSafe<{ defects: unknown[] }>(path.join(dir, 'known_defects.json'));
       expect(pkg, `pkg missing for ${c}`).not.toBeNull();
@@ -30,7 +30,7 @@ describe('Benchmark suite', () => {
   it('bad-node-cli is detected as raw_demo or working_demo', async () => {
     const analyzer = new AnalyzerAgent();
     const { score, standard_name } = await analyzer.fullAnalyze(
-      path.join(repoRoot, 'benchmarks', 'bad-node-cli'),
+      path.join(repoRoot, 'benchmarks', 'public', 'bad-node-cli'),
     );
     expect(score.grade).toMatch(/raw_demo|working_demo/);
     expect(standard_name).toBe('node-cli');
@@ -38,7 +38,7 @@ describe('Benchmark suite', () => {
 
   it('bad-docs-project triggers docs-claim detector heavily', async () => {
     const { runDocsTruth } = await import('../src/core/docsTruth.js');
-    const r = await runDocsTruth(path.join(repoRoot, 'benchmarks', 'bad-docs-project'));
+    const r = await runDocsTruth(path.join(repoRoot, 'benchmarks', 'public', 'bad-docs-project'));
     expect(r.missing).toBeGreaterThanOrEqual(3);
   });
 });

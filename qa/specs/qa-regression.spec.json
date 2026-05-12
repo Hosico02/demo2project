@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated_at": "1970-01-01T00:00:00.000Z",
+  "updated_at": "2026-05-12T10:35:38.216Z",
   "assertions": [
     "missing_validation_after_code_change",
     "supervisor_accepts_unverified_result",

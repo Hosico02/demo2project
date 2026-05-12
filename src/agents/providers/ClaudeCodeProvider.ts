@@ -75,6 +75,10 @@ export class ClaudeCodeProvider implements AgentProvider {
       };
     }
 
+    // Capture pre-call filesystem fingerprint so we can detect changed files
+    // independent of the model's self-report.
+    const preFiles = await fsFingerprint(ctx.project_path);
+
     const prompt = buildPrompt(task);
     const sub = await invokeClaude(prompt, ctx.project_path, this.opts);
 
@@ -89,11 +93,24 @@ export class ClaudeCodeProvider implements AgentProvider {
 
     const parsed = parseClaudeJson(sub.stdout);
     const summary = parsed?.summary ?? (parsed?.result as string | undefined) ?? '(no summary from claude)';
-    const changed_files = Array.isArray(parsed?.changed_files)
+    const claimed = Array.isArray(parsed?.changed_files)
       ? parsed!.changed_files.map(String)
       : [];
 
-    // Always run the task's verification commands locally afterwards.
+    // Independent observation of what actually changed on disk.
+    const postFiles = await fsFingerprint(ctx.project_path);
+    const observed = diffFingerprints(preFiles, postFiles);
+
+    // Confidence scoring:
+    //   - high: JSON parsed AND observed changes match claimed set (≥80% overlap)
+    //   - medium: JSON parsed but partial match
+    //   - low: JSON unparseable OR claimed/observed sets disagree heavily
+    const confidence = scoreConfidence(parsed, claimed, observed);
+
+    const changed_files = observed.length > 0 ? observed : claimed;
+
+    // Run the task's verification commands locally — evidence chain is ours,
+    // not the model's.
     const evidence: VerificationResult[] = [];
     for (const cmd of task.verification_commands) {
       const vr = await runCommand(cmd, { cwd: ctx.project_path, timeoutMs: 60_000 });
@@ -101,23 +118,113 @@ export class ClaudeCodeProvider implements AgentProvider {
     }
     const allPassed = evidence.length > 0 && evidence.every((e) => e.passed);
 
+    // Low-confidence results never become "completed" without explicit reason.
+    let status: AgentResult['status'];
+    if (confidence === 'low') {
+      status = changed_files.length > 0 ? 'failed' : 'skipped';
+    } else if (changed_files.length > 0 && evidence.length === 0) {
+      status = 'failed';
+    } else if (allPassed) {
+      status = 'completed';
+    } else if (evidence.length === 0) {
+      status = 'skipped';
+    } else {
+      status = 'failed';
+    }
+
+    const risks: string[] = parsed?.risks ?? [];
+    if (claimed.length > 0 && observed.length === 0) risks.push('model claimed changes but filesystem unchanged');
+    if (observed.length > claimed.length + 2) risks.push(`model changed ${observed.length - claimed.length} more files than reported`);
+
     return {
       ...base,
-      summary,
-      status: changed_files.length > 0 && evidence.length === 0
-        ? 'failed'
-        : allPassed ? 'completed' : evidence.length === 0 ? 'skipped' : 'failed',
+      summary: `[confidence=${confidence}] ${summary}`,
+      status,
       changed_files,
       commands_run: task.verification_commands,
       verification_evidence: evidence,
-      unable_to_verify_reason: evidence.length === 0 && changed_files.length === 0
-        ? 'no_verification_commands_for_task'
-        : undefined,
+      unable_to_verify_reason:
+        evidence.length === 0 && changed_files.length === 0
+          ? 'no_verification_commands_for_task'
+          : confidence === 'low'
+            ? 'low_confidence_in_provider_output'
+            : undefined,
       failures: evidence.filter((e) => !e.passed).map((e) => `${e.command} → ${e.failure_reason ?? 'failed'}`),
       next_steps: parsed?.next_steps ?? [],
-      risks: parsed?.risks ?? [],
+      risks,
     };
   }
+}
+
+/** Alias so `--provider claude-cli` works. Delegates to ClaudeCodeProvider. */
+export class ClaudeCliProvider implements AgentProvider {
+  readonly name = 'claude-cli';
+  private inner: ClaudeCodeProvider;
+  constructor(opts: ClaudeCodeOptions = {}) {
+    this.inner = new ClaudeCodeProvider(opts);
+  }
+  runTask(task: AgentTask, ctx: AgentContext): Promise<AgentResult> {
+    return this.inner.runTask(task, ctx);
+  }
+}
+
+// --- fs fingerprinting helpers (Phase 4) -------------------------------
+
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+interface FileFingerprint { rel: string; mtimeMs: number; size: number }
+
+async function fsFingerprint(root: string, max = 800): Promise<FileFingerprint[]> {
+  const out: FileFingerprint[] = [];
+  const skip = new Set(['node_modules', '.git', 'dist', '.demo2project', 'coverage']);
+  async function walk(dir: string, rel: string): Promise<void> {
+    if (out.length >= max) return;
+    let entries: import('node:fs').Dirent[];
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (skip.has(e.name)) continue;
+      const childRel = rel ? path.join(rel, e.name) : e.name;
+      const childAbs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(childAbs, childRel);
+      } else if (e.isFile()) {
+        try {
+          const st = await fs.stat(childAbs);
+          out.push({ rel: childRel, mtimeMs: st.mtimeMs, size: st.size });
+        } catch { /* skip */ }
+        if (out.length >= max) return;
+      }
+    }
+  }
+  await walk(root, '');
+  return out;
+}
+
+function diffFingerprints(pre: FileFingerprint[], post: FileFingerprint[]): string[] {
+  const preMap = new Map(pre.map((f) => [f.rel, f] as const));
+  const postMap = new Map(post.map((f) => [f.rel, f] as const));
+  const changed = new Set<string>();
+  for (const [rel, p] of postMap) {
+    const prev = preMap.get(rel);
+    if (!prev) changed.add(rel);
+    else if (prev.mtimeMs !== p.mtimeMs || prev.size !== p.size) changed.add(rel);
+  }
+  for (const [rel] of preMap) {
+    if (!postMap.has(rel)) changed.add(rel);
+  }
+  return Array.from(changed).sort();
+}
+
+function scoreConfidence(parsed: unknown, claimed: string[], observed: string[]): 'high' | 'medium' | 'low' {
+  if (parsed === null || parsed === undefined) return 'low';
+  if (claimed.length === 0 && observed.length === 0) return 'medium';
+  if (claimed.length === 0 || observed.length === 0) return 'low';
+  const overlap = claimed.filter((f) => observed.includes(f)).length;
+  const ratio = overlap / Math.max(claimed.length, observed.length);
+  if (ratio >= 0.8) return 'high';
+  if (ratio >= 0.4) return 'medium';
+  return 'low';
 }
 
 // --- helpers -------------------------------------------------------------

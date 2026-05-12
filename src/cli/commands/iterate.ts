@@ -3,7 +3,7 @@ import { SupervisorAgent } from '../../agents/SupervisorAgent.js';
 import { MockAgentProvider, type MockMode } from '../../agents/providers/MockAgentProvider.js';
 import { LocalCommandProvider } from '../../agents/providers/LocalCommandProvider.js';
 import { RuleBasedExecutor } from '../../agents/providers/RuleBasedExecutor.js';
-import { ClaudeCodeProvider } from '../../agents/providers/ClaudeCodeProvider.js';
+import { ClaudeCodeProvider, ClaudeCliProvider } from '../../agents/providers/ClaudeCodeProvider.js';
 import { CodexProvider, DevinProvider, OpenHandsProvider, AiderProvider } from '../../agents/providers/FutureProvider.js';
 import type { AgentProvider } from '../../agents/providers/AgentProvider.js';
 import { flagNumber, flagString, requireProject } from './_shared.js';
@@ -29,6 +29,9 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
       break;
     case 'claude-code':
       provider = new ClaudeCodeProvider({ enabled: true });
+      break;
+    case 'claude-cli':
+      provider = new ClaudeCliProvider({ enabled: true });
       break;
     case 'codex':
       provider = CodexProvider();

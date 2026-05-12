@@ -12,6 +12,8 @@ import { VerifierAgent } from './VerifierAgent.js';
 import { ReviewerAgent } from './ReviewerAgent.js';
 import { MemoryAgent } from './MemoryAgent.js';
 import { EventStore } from '../core/eventStore.js';
+import { EvidenceGraph } from '../core/evidenceGraph.js';
+import { CostTracker } from '../core/costTracker.js';
 import { IterationWorkspace } from '../core/iterationWorkspace.js';
 import { QAAgent } from '../qa/QAAgent.js';
 import { QACaseStore } from '../qa/QACaseStore.js';
@@ -91,6 +93,7 @@ export class SupervisorAgent {
     for (let i = 0; i < maxIter; i++) {
       const iterationId = shortId('iter');
       const startedAt = nowIso();
+      const cost = new CostTracker(iterationId);
       await store.append({
         iteration_id: iterationId,
         agent: 'supervisor',
@@ -117,6 +120,31 @@ export class SupervisorAgent {
 
       // 1. analyze
       const { snapshot, score: scoreBefore, gap } = await this.analyzer.fullAnalyze(opts.projectPath);
+      const graph = new EvidenceGraph(iterationId);
+      const snapshotEv = graph.addEvidence({
+        type: 'note', source_agent: 'analyzer',
+        content_summary: `snapshot: lang=${snapshot.detected_language}, pm=${snapshot.package_manager}, files=${snapshot.important_files.length}`,
+        confidence: 'high', related_files: snapshot.important_files,
+      });
+      const scoreEv = graph.addEvidence({
+        type: 'score', source_agent: 'analyzer',
+        content_summary: `before: total=${scoreBefore.total} grade=${scoreBefore.grade}`,
+        confidence: 'high', metadata: { breakdown: scoreBefore.breakdown },
+      });
+      graph.addClaim({
+        claim: `project starts at score=${scoreBefore.total} grade=${scoreBefore.grade}`,
+        status: 'verified',
+        evidence_ids: [snapshotEv.id, scoreEv.id],
+        confidence: 'high',
+      });
+      for (const f of gap.findings) {
+        graph.addEvidence({
+          type: 'finding', source_agent: 'analyzer',
+          content_summary: `${f.category}/${f.severity}: ${f.message}`,
+          confidence: 'high', related_files: f.related_files,
+          metadata: { finding_id: f.id },
+        });
+      }
 
       // 2. preflight QA cases (consults global+workspace+repo scopes when systemRoot is provided)
       await qaAgent.preflight(iterationId, snapshot, store, { systemRoot: opts.systemRoot });
@@ -207,6 +235,7 @@ export class SupervisorAgent {
             raw_output: `${ev.stdout_summary}\n${ev.stderr_summary}`.slice(0, 4000),
             metadata: { duration_ms: ev.duration_ms },
           });
+          cost.addCommand(ev.duration_ms, (ev.stdout_summary.length + ev.stderr_summary.length) / 4);
         }
         return verified;
       };
@@ -253,12 +282,38 @@ export class SupervisorAgent {
         finished_at: finishedAt,
       };
       await store.saveIterationSummary(summary);
+      // record after-score claim into the evidence graph
+      const scoreAfterEv = graph.addEvidence({
+        type: 'score', source_agent: 'analyzer',
+        content_summary: `after: total=${scoreAfter.total} grade=${scoreAfter.grade}`,
+        confidence: 'high', metadata: { breakdown: scoreAfter.breakdown },
+      });
+      graph.addClaim({
+        claim: `iteration delta=${scoreAfter.total - scoreBefore.total}`,
+        status: scoreAfter.total >= scoreBefore.total ? 'verified' : 'contradicted',
+        evidence_ids: [scoreEv.id, scoreAfterEv.id],
+        confidence: 'high',
+      });
+      for (const qaId of qaCases.map((c) => c.fingerprint)) {
+        graph.addEvidence({
+          type: 'qa_case', source_agent: 'qa',
+          content_summary: `qa case: ${qaId}`,
+          confidence: 'high',
+          metadata: { fingerprint: qaId },
+        });
+      }
+      await graph.persist(opts.projectPath);
+      const costRecord = cost.finalize({
+        score_delta: scoreAfter.total - scoreBefore.total,
+        defects_fixed: gap.findings.length - (await this.analyzer.fullAnalyze(opts.projectPath)).gap.findings.length,
+      });
+      await CostTracker.persist(opts.projectPath, costRecord);
       await store.append({
         iteration_id: iterationId,
         agent: 'supervisor',
         event_type: 'iteration_finished',
         severity: 'info',
-        message: `score ${scoreBefore.total} → ${scoreAfter.total}`,
+        message: `score ${scoreBefore.total} → ${scoreAfter.total} (cost ${costRecord.command_count} cmds, ${costRecord.wall_time_ms}ms)`,
       });
       summaries.push(summary);
 

@@ -188,9 +188,44 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ## Roadmap
 
-v0.0.3 = Phase-3 evaluation & proof. v0.0.1 proved the loop runs; v0.0.2
-made it hard to bypass; **v0.0.3 proves it actually outperforms a naive
-agent on the same fixtures**.
+v0.0.4 = Phase-4 real-world generalization & control. v0.0.3 proved the
+loop outperforms a naive simulated agent; **v0.0.4 verifies it can drive
+the real Claude CLI subprocess and gracefully refuse low-confidence output**.
+
+### v0.0.4 — Real-World Generalization & Control
+
+- **Real `ClaudeCliProvider`** — `--provider claude-cli --enabled` shells out
+  to the actual `claude -p` CLI. Before/after filesystem fingerprinting,
+  confidence scoring (high/medium/low), and **low-confidence results never
+  reach `completed`**. End-to-end verified in v0.0.4 against `claude` 2.1.139.
+- **Evidence graph** — `EvidenceNode` + `ClaimNode` types persisted at
+  `.demo2project/evidence/<iter>.json`. New CLIs: `evidence:show`,
+  `evidence:explain`.
+- **Anti-gaming detectors** — empty tests, sham assertions (`assert(1==1)`),
+  echo-only build scripts, fake CI, secrets in source, dependency bloat.
+  Penalties flow into the evidence-weighted score; `confidence_adjusted_score`
+  added.
+- **`benchmarks/public/` + `benchmarks/hidden/`** — hidden cases use
+  `hidden_defects.json` (NOT `known_defects`) so they survive overfitting.
+  `eval --include-hidden` is the generalization gate.
+- **`long-run` CLI** — N iterations with trend reporting:
+  `score_trend`, `qa_memory_growth`, `docs_truth_trend`,
+  `final_stability_rating` (`stable` / `degraded_after_peak` / `volatile`).
+- **Cost tracking** — every iteration writes a `CostRecord`
+  (`wall_time_ms`, `command_count`, `token_estimate`, `retry_count`,
+  `cost_per_score_point`). `cost:report` CLI.
+- **Multi-executor comparison** — `compare-executors --case <n> --providers <list>`
+  runs the same fixture through several providers and prints a comparison
+  table.
+- **Human approval gate** — `recordPendingApprovals` flags medium/high-risk
+  paths; `approvals:list / approve / reject` CLIs. Default policy in
+  `config/approval-policy.json`.
+- **`self-iterate-sandbox`** — worktree-bounded self-mutation with mandatory
+  `pnpm test` + `pnpm build` + score gate. `--apply` only.
+- **10 new tests** — evidenceGraph, antiGamingScorer, costTracking,
+  humanApprovalGate, hiddenBenchmark, multiExecutorComparison,
+  longHorizonEvaluation, qaMemoryAudit, selfIterationSandbox, plus the
+  expanded claudeCliProvider contract.
 
 ### v0.0.3 — Evaluation & Proof
 

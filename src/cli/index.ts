@@ -16,6 +16,12 @@ import { docsTruth } from './commands/docsTruth.js';
 import { evaluate } from './commands/evaluate.js';
 import { qaAudit, qaRetire, qaPromote } from './commands/qaAudit.js';
 import { providerTest } from './commands/providerTest.js';
+import { evidenceShow, evidenceExplain } from './commands/evidence.js';
+import { costReport } from './commands/cost.js';
+import { compareExecutors } from './commands/compareExecutors.js';
+import { longRun } from './commands/longRun.js';
+import { approvalsList, approvalsApprove, approvalsReject } from './commands/approvals.js';
+import { selfIterateSandbox } from './commands/selfIterateSandbox.js';
 
 interface ParsedArgs {
   command: string;
@@ -128,6 +134,24 @@ async function main(): Promise<number> {
       return qaPromote(args.flags);
     case 'provider:test':
       return providerTest(args.flags);
+    case 'evidence:show':
+      return evidenceShow(args.flags);
+    case 'evidence:explain':
+      return evidenceExplain(args.flags);
+    case 'cost:report':
+      return costReport(args.flags);
+    case 'compare-executors':
+      return compareExecutors(args.flags);
+    case 'long-run':
+      return longRun(args.flags);
+    case 'approvals:list':
+      return approvalsList(args.flags);
+    case 'approvals:approve':
+      return approvalsApprove(args.flags);
+    case 'approvals:reject':
+      return approvalsReject(args.flags);
+    case 'self-iterate-sandbox':
+      return selfIterateSandbox(args.flags);
     case 'help':
     case '--help':
     case '-h':

@@ -66,6 +66,8 @@ export interface EvalRunOptions {
   maxIterations?: number;
   /** If true, evidence-weighted scoring actually runs test/build commands. */
   runVerificationCommands?: boolean;
+  /** Include benchmarks/hidden/ cases — used for generalization scoring. */
+  includeHidden?: boolean;
 }
 
 async function copyDir(src: string, dst: string): Promise<void> {
@@ -80,16 +82,19 @@ async function copyDir(src: string, dst: string): Promise<void> {
   }
 }
 
-async function listCases(systemRoot: string, caseName?: string): Promise<string[]> {
-  const benchDir = path.join(systemRoot, 'benchmarks');
-  let entries: string[] = [];
-  try { entries = await fs.readdir(benchDir); } catch { return []; }
+async function listCases(systemRoot: string, caseName?: string, includeHidden = false): Promise<string[]> {
+  const roots = [path.join(systemRoot, 'benchmarks', 'public')];
+  if (includeHidden) roots.push(path.join(systemRoot, 'benchmarks', 'hidden'));
   const out: string[] = [];
-  for (const e of entries) {
-    if (caseName && e !== caseName) continue;
-    const p = path.join(benchDir, e);
-    const st = await fs.stat(p).catch(() => null);
-    if (st?.isDirectory()) out.push(p);
+  for (const root of roots) {
+    let entries: string[] = [];
+    try { entries = await fs.readdir(root); } catch { continue; }
+    for (const e of entries) {
+      if (caseName && e !== caseName) continue;
+      const p = path.join(root, e);
+      const st = await fs.stat(p).catch(() => null);
+      if (st?.isDirectory()) out.push(p);
+    }
   }
   return out;
 }
@@ -109,7 +114,7 @@ async function scoreWithStandard(projectPath: string, runVerificationCommands: b
 }
 
 export async function runEvaluation(opts: EvalRunOptions): Promise<EvalComparison[]> {
-  const cases = await listCases(opts.systemRoot, opts.caseName);
+  const cases = await listCases(opts.systemRoot, opts.caseName, opts.includeHidden ?? false);
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'd2p-eval-'));
   const rows: EvalComparison[] = [];
 
