@@ -4,6 +4,7 @@ import { MockAgentProvider, type MockMode } from '../../agents/providers/MockAge
 import { LocalCommandProvider } from '../../agents/providers/LocalCommandProvider.js';
 import { RuleBasedExecutor } from '../../agents/providers/RuleBasedExecutor.js';
 import { ClaudeCodeProvider } from '../../agents/providers/ClaudeCodeProvider.js';
+import { CodexProvider, DevinProvider, OpenHandsProvider, AiderProvider } from '../../agents/providers/FutureProvider.js';
 import type { AgentProvider } from '../../agents/providers/AgentProvider.js';
 import { flagNumber, flagString, requireProject } from './_shared.js';
 
@@ -29,6 +30,18 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
     case 'claude-code':
       provider = new ClaudeCodeProvider({ enabled: true });
       break;
+    case 'codex':
+      provider = CodexProvider();
+      break;
+    case 'devin':
+      provider = DevinProvider();
+      break;
+    case 'openhands':
+      provider = OpenHandsProvider();
+      break;
+    case 'aider':
+      provider = AiderProvider();
+      break;
     default:
       process.stderr.write(`error: unknown provider "${providerName}"\n`);
       return 2;
@@ -36,12 +49,14 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
 
   const supervisor = new SupervisorAgent();
   const systemRoot = flagString(flags, 'system-root', defaultSystemRoot())!;
+  const useWorktree = flags['use-worktree'] === true || flags['use-worktree'] === 'true';
   const summaries = await supervisor.iterate({
     projectPath: project,
     goal,
     provider,
     maxIterations: maxIter,
     systemRoot,
+    useWorktree,
   });
 
   for (const s of summaries) {

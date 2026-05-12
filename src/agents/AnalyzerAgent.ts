@@ -8,30 +8,45 @@ import { takeSnapshot } from '../core/projectSnapshot.js';
 import { scoreProject } from '../core/projectScorer.js';
 import { analyzeGaps } from '../core/gapAnalyzer.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
+import { selectStandardForSnapshot } from '../standards/standardsLibrary.js';
 
 export class AnalyzerAgent {
-  constructor(private standard: ProjectStandard = DEFAULT_PROJECT_STANDARD) {}
+  /** If `undefined`, the analyzer auto-selects per snapshot. */
+  constructor(private standard?: ProjectStandard) {}
+
+  private async resolve(snapshot: ProjectSnapshot): Promise<{ standard: ProjectStandard; name: string }> {
+    if (this.standard) return { standard: this.standard, name: 'caller-supplied' };
+    try {
+      return await selectStandardForSnapshot(snapshot);
+    } catch {
+      return { standard: DEFAULT_PROJECT_STANDARD, name: 'fallback-default' };
+    }
+  }
 
   async snapshot(projectPath: string): Promise<ProjectSnapshot> {
     return takeSnapshot(projectPath);
   }
 
   async score(snapshot: ProjectSnapshot): Promise<ProjectScore> {
-    return scoreProject(snapshot, this.standard);
+    const { standard } = await this.resolve(snapshot);
+    return scoreProject(snapshot, standard);
   }
 
   async gap(snapshot: ProjectSnapshot, score: ProjectScore): Promise<GapReport> {
-    return analyzeGaps(snapshot, score, this.standard);
+    const { standard } = await this.resolve(snapshot);
+    return analyzeGaps(snapshot, score, standard);
   }
 
   async fullAnalyze(projectPath: string): Promise<{
     snapshot: ProjectSnapshot;
     score: ProjectScore;
     gap: GapReport;
+    standard_name: string;
   }> {
     const snap = await this.snapshot(projectPath);
-    const score = await this.score(snap);
-    const gap = await this.gap(snap, score);
-    return { snapshot: snap, score, gap };
+    const { standard, name: standardName } = await this.resolve(snap);
+    const score = await scoreProject(snap, standard);
+    const gap = await analyzeGaps(snap, score, standard);
+    return { snapshot: snap, score, gap, standard_name: standardName };
   }
 }

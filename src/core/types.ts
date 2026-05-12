@@ -174,6 +174,9 @@ export interface QAHumanFlowStep {
   action: string;
 }
 
+export type QAScope = 'repo' | 'workspace' | 'global';
+export type QAPortability = 'low' | 'medium' | 'high';
+
 export interface QACase {
   id: string;
   title: string;
@@ -181,6 +184,8 @@ export interface QACase {
   severity: Severity;
   frequency: number;
   status: 'active' | 'resolved' | 'archived';
+  scope?: QAScope;
+  portability?: QAPortability;
   project_type: string[];
   bug_source: {
     iteration_id: string;

@@ -12,6 +12,7 @@ import { VerifierAgent } from './VerifierAgent.js';
 import { ReviewerAgent } from './ReviewerAgent.js';
 import { MemoryAgent } from './MemoryAgent.js';
 import { EventStore } from '../core/eventStore.js';
+import { IterationWorkspace } from '../core/iterationWorkspace.js';
 import { QAAgent } from '../qa/QAAgent.js';
 import { QACaseStore } from '../qa/QACaseStore.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
@@ -38,6 +39,8 @@ export interface IterateOptions {
   retryPolicy?: RetryPolicy;
   /** Parallel tasks per round. Default: 1 (sequential). */
   parallelism?: number;
+  /** When true and project_path is a git repo, isolate each iteration on a branch. */
+  useWorktree?: boolean;
 }
 
 /**
@@ -83,6 +86,8 @@ export class SupervisorAgent {
     let prevScore = -1;
     let noProgressRounds = 0;
 
+    const workspace = opts.useWorktree ? new IterationWorkspace(opts.projectPath) : null;
+
     for (let i = 0; i < maxIter; i++) {
       const iterationId = shortId('iter');
       const startedAt = nowIso();
@@ -94,11 +99,27 @@ export class SupervisorAgent {
         message: `iteration ${i + 1}/${maxIter} for goal "${opts.goal}"`,
       });
 
+      let workspaceEnabled = false;
+      if (workspace) {
+        const begin = await workspace.begin(iterationId);
+        workspaceEnabled = begin.enabled;
+        await store.append({
+          iteration_id: iterationId,
+          agent: 'supervisor',
+          event_type: 'note',
+          severity: 'info',
+          message: begin.enabled
+            ? `workspace branch created: ${begin.manifest?.iter_branch}`
+            : `workspace disabled: ${begin.reason ?? 'unknown'}`,
+          metadata: { workspace_enabled: begin.enabled, reason: begin.reason },
+        });
+      }
+
       // 1. analyze
       const { snapshot, score: scoreBefore, gap } = await this.analyzer.fullAnalyze(opts.projectPath);
 
-      // 2. preflight QA cases
-      await qaAgent.preflight(iterationId, snapshot, store);
+      // 2. preflight QA cases (consults global+workspace+repo scopes when systemRoot is provided)
+      await qaAgent.preflight(iterationId, snapshot, store, { systemRoot: opts.systemRoot });
 
       // 3. plan
       const plan = this.planner.plan(gap, opts.goal, iterationId);
@@ -240,6 +261,22 @@ export class SupervisorAgent {
         message: `score ${scoreBefore.total} → ${scoreAfter.total}`,
       });
       summaries.push(summary);
+
+      // Finalize workspace: success = score did not regress AND no high-sev review findings
+      if (workspace && workspaceEnabled) {
+        const success =
+          scoreAfter.total >= scoreBefore.total &&
+          !reviewerFindings.some((f) => /\/high\]|\/blocker\]/.test(f));
+        const m = await workspace.finalize({ iterationId, success });
+        await store.append({
+          iteration_id: iterationId,
+          agent: 'supervisor',
+          event_type: 'note',
+          severity: 'info',
+          message: `workspace finalized: outcome=${m?.outcome ?? 'unknown'}`,
+          metadata: { outcome: m?.outcome },
+        });
+      }
 
       // 8. stop conditions
       if (scoreAfter.grade === 'production_ready_baseline') break;

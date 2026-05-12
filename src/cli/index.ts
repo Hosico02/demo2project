@@ -10,6 +10,9 @@ import { qaRegression } from './commands/qaRegression.js';
 import { selfCheck } from './commands/selfCheck.js';
 import { selfIterate } from './commands/selfIterate.js';
 import { benchmark } from './commands/benchmark.js';
+import { rollback } from './commands/rollback.js';
+import { claudeInstallHooks } from './commands/claudeInstallHooks.js';
+import { docsTruth } from './commands/docsTruth.js';
 
 interface ParsedArgs {
   command: string;
@@ -101,6 +104,12 @@ async function main(): Promise<number> {
       return selfIterate(args.flags);
     case 'benchmark':
       return benchmark(args.flags);
+    case 'rollback':
+      return rollback(args.flags);
+    case 'claude:install-hooks':
+      return claudeInstallHooks(args.flags);
+    case 'docs:truth':
+      return docsTruth(args.flags);
     case 'help':
     case '--help':
     case '-h':

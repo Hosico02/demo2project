@@ -1,15 +1,31 @@
 # Demo2Project
 
-Iteratively turn a **demo** into a **production-ready project** via a multi-agent
-loop with built-in QA learning.
+**Demo2Project is a projectization control layer — not another coding agent.**
 
-> AI coding tools produce demos at lightning speed but stall when you ask them
-> to harden the demo into something maintainable, testable, deployable, and
-> evolvable. Demo2Project is the layer that closes that gap: a Supervisor +
-> Analyzer + Planner + Executor + Verifier + Reviewer + QA loop that scores
-> a project against a project-ready standard, plans small fixes, runs them,
-> verifies them, and **learns from every failure** so the same mistake does
-> not show up twice.
+It sits *above* coding agents (Claude Code, Codex, Devin, OpenHands, Aider, …)
+and answers a different question:
+
+> Has this demo actually become a maintainable project, and if not, what
+> exactly is missing and how do we prove it stayed fixed?
+
+Coding agents are the **Executor** behind a provider seam. Demo2Project owns
+the parts coding agents are bad at: **Supervisor + Project Scorer + Gap
+Analyzer + Verification Gate + QA Learning + Regression Memory + Docs Truth
+Check + Workspace Isolation**.
+
+The thesis is simple: the bottleneck in demo→project work is not raw code
+generation — it is *enforced discipline*. AI agents skip verification, claim
+completion without evidence, reintroduce yesterday's bug, and ship READMEs
+that lie about what runs. Demo2Project mechanically prevents each of those
+failure modes.
+
+| What we do NOT do | What we DO do |
+|---|---|
+| Compete with Claude Code / Codex / Devin on code quality | Score the **project** (not the code) against a project-ready standard |
+| Generate demos | Verify demos *became* projects (and detect regression) |
+| Run an LLM by default | Run a deterministic loop; LLM providers are pluggable |
+| Trust agent self-reports | Re-run verification independently and refuse unverified completions |
+| Forget across sessions | Persist fingerprinted QA cases at repo / workspace / global scopes |
 
 ---
 
@@ -172,8 +188,45 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ## Roadmap
 
-v0.0.1 ships **Phase 1 in full** plus a minimal runnable slice of every later
-phase so the architecture is end-to-end provable. Heavier pieces (real model
+v0.0.2 = Phase-2 hardening / anti-trap optimization on top of v0.0.1's
+runnable closed loop. v0.0.1 was about proving the loop works at all; v0.0.2
+is about making it hard to bypass.
+
+### What hardened in v0.0.2
+
+- **Repositioned**: README and `docs/architecture.md` make explicit that
+  Demo2Project is a **control layer**, not a coding agent. Coding agents are
+  pluggable executors behind `AgentProvider`.
+- **Provider isolation**: New `FutureProvider` stubs for Codex / Devin /
+  OpenHands / Aider. A dedicated `providerIsolation.test` asserts the
+  Supervisor never imports a concrete provider class.
+- **Workspace isolation**: `IterationWorkspace` snapshots the base commit,
+  runs each iteration on a `demo2project/iter-<id>` branch, and supports
+  `iterate --use-worktree` + a new `rollback --iteration <id>` CLI.
+- **Claude CLI hooks**: `templates/claude/` ships three hooks
+  (pre-tool-use-safety, post-tool-use-event-recorder, stop-verification-gate)
+  and a `claude:install-hooks` command. Hooks fail open on parse error,
+  fail closed on rule match, and respect `DEMO2PROJECT_HOOKS_DISABLED=1`.
+- **Docs truth check**: `DocsTruthChecker` parses README commands and
+  verifies them against `package.json` scripts, Dockerfile, CI config, and
+  `.env.example`. New CLI `docs:truth --project`.
+- **Three-tier QA memory**: cases now have `scope` and `portability`; the
+  QA Agent reads `global` → `workspace` → `repo` at preflight. Seeded
+  `qa/specs/global-patterns.json` with well-known AI-coding failure modes.
+- **Standards library**: 7 standards under `src/standards/library/`
+  (generic / node-cli / typescript-library / react-app / nextjs-app /
+  python-package / fastapi-api). Analyzer auto-selects per snapshot.
+- **Benchmark suite**: 4 new benchmark fixtures with `known_defects.json`,
+  `hidden_checks.md`, and expected score windows. `benchmark` now copies
+  each fixture to a tmp sandbox before iterating — fixtures are never
+  mutated. `--case <name>` runs a single benchmark.
+- **Verification gate proven**: dedicated `verificationGate.test` exercises
+  all 5 invariants end-to-end.
+- **Security docs**: `docs/claude-cli-integration.md` and
+  `docs/plugin-security.md` describe the hook protocol, MCP caveats, and
+  the right posture for running agents on untrusted repos.
+
+### Earlier phases (kept from v0.0.1) Heavier pieces (real model
 calls behind API keys, vector embeddings, autonomous self-mutation) remain
 explicitly deferred — the slice exists, the integration does not.
 

@@ -4,6 +4,7 @@ import { generateCasesFromEvents } from './QACaseGenerator.js';
 import { dedupeCases } from './QADeduplicator.js';
 import type { MemoryAgent } from '../agents/MemoryAgent.js';
 import type { EventStore } from '../core/eventStore.js';
+import { loadAllScopes, selectForSnapshot } from './QAMemoryScopes.js';
 
 /**
  * QAAgent: learn from iteration events, persist QA cases, and maintain
@@ -26,20 +27,37 @@ export class QAAgent {
 
   async preflight(
     iterationId: string,
-    _snapshot: ProjectSnapshot,
+    snapshot: ProjectSnapshot,
     eventStore: EventStore,
-  ): Promise<{ active: number }> {
-    const cases = await this.store.loadCases();
-    const active = cases.filter((c) => c.status === 'active');
+    opts: { systemRoot?: string } = {},
+  ): Promise<{ active: number; scopes: { global: number; workspace: number; repo: number } }> {
+    let scoped = { global: [] as QACase[], workspace: [] as QACase[], repo: [] as QACase[] };
+    if (opts.systemRoot) {
+      scoped = await loadAllScopes({
+        projectPath: snapshot.project_path,
+        systemRoot: opts.systemRoot,
+      });
+    }
+    const repoLegacy = await this.store.loadCases(); // existing per-project store
+    const repoMerged = dedupeCases([...scoped.repo, ...repoLegacy]);
+    const all = selectForSnapshot({ global: scoped.global, workspace: scoped.workspace, repo: repoMerged }, snapshot);
+    const active = all.filter((c) => c.status === 'active');
+
     await eventStore.append({
       iteration_id: iterationId,
       agent: 'qa',
       event_type: 'note',
       severity: 'info',
-      message: `qa preflight: ${active.length} active case(s) loaded`,
-      metadata: { active_cases: active.map((c) => c.fingerprint) },
+      message: `qa preflight: ${active.length} active case(s) across scopes (g=${scoped.global.length} w=${scoped.workspace.length} r=${repoMerged.length})`,
+      metadata: {
+        active_fingerprints: active.map((c) => c.fingerprint),
+        scope_counts: { global: scoped.global.length, workspace: scoped.workspace.length, repo: repoMerged.length },
+      },
     });
-    return { active: active.length };
+    return {
+      active: active.length,
+      scopes: { global: scoped.global.length, workspace: scoped.workspace.length, repo: repoMerged.length },
+    };
   }
 
   async learnFromEvents(

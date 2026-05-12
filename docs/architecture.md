@@ -1,5 +1,36 @@
 # Architecture
 
+## Positioning (read this first)
+
+Demo2Project is a **control layer**, not a coding agent. The layering is:
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │  User / CI                                                  │
+   └──────────────────────────┬──────────────────────────────────┘
+                              │
+   ┌──────────────────────────▼──────────────────────────────────┐
+   │  Demo2Project (control plane)                               │
+   │  ─ Supervisor / Analyzer / Planner / Verifier / Reviewer    │
+   │  ─ Project Scorer / Gap Analyzer / Standards library        │
+   │  ─ QA Learning (repo/workspace/global memory)               │
+   │  ─ Verification Gate + Docs Truth Checker                   │
+   │  ─ IterationWorkspace (branch isolation + rollback)         │
+   │  ─ Event Store + Regression Runner                          │
+   └──────────────────────────┬──────────────────────────────────┘
+                              │ AgentProvider seam
+   ┌──────────────────────────▼──────────────────────────────────┐
+   │  Executors (interchangeable)                                │
+   │  Mock | LocalCommand | RuleBasedExecutor | ClaudeCode |     │
+   │  Codex (planned) | Devin (planned) | OpenHands (planned) |  │
+   │  Aider (planned) | …                                        │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+Supervisor never speaks to a model directly — it goes through `AgentProvider`.
+Replace the provider and the loop, scoring, gating, and QA learning all keep
+working unchanged.
+
 ## Module map
 
 ```
