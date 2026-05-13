@@ -1,6 +1,6 @@
 {
   "name": "demo2project",
-  "version": "0.1.0",
+  "version": "0.0.8",
   "type": "module",
   "description": "Iteratively turn demos into production-ready projects via a multi-agent loop with QA learning.",
   "license": "MIT",

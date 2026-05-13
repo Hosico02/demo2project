@@ -2,6 +2,29 @@
 
 **Demo2Project is a projectization control layer — not another coding agent.**
 
+## Quickstart
+
+```bash
+pnpm install && pnpm build
+pnpm demo2project doctor                         # check your environment
+pnpm demo2project init --interactive             # 30-second setup wizard
+pnpm demo2project quickstart --use-example       # 5-minute analyze/gap/trust loop
+```
+
+Then on your real project:
+
+```bash
+pnpm demo2project analyze --project /path/to/your/repo
+pnpm demo2project gap --project /path/to/your/repo
+pnpm demo2project trust:check --project /path/to/your/repo
+pnpm demo2project iterate --project /path/to/your/repo --provider rule-based --max-iterations 1
+pnpm demo2project report:project --project /path/to/your/repo
+```
+
+Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
+
+---
+
 It sits *above* coding agents (Claude Code, Codex, Devin, OpenHands, Aider, …)
 and answers a different question:
 

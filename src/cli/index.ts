@@ -34,6 +34,21 @@ import { generalize } from './commands/generalize.js';
 import { workspaceReport } from './commands/workspaceReport.js';
 import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
 import { redactTest } from './commands/redactTest.js';
+// --- Phase 8 ---
+import { doctor as doctorCmd } from './commands/doctor.js';
+import { nextCmd } from './commands/next.js';
+import { quickstart as quickstartCmd } from './commands/quickstart.js';
+import { initWizard } from './commands/setupCli.js';
+import { configShow, configExplain, configValidate, configMigrate, configDiffCmd, configExport } from './commands/configCli.js';
+import { diagnoseCmd, logsExplain, troubleshoot, remediation } from './commands/diagnostics.js';
+import { reportProject, reportSecurity, reportTrust as reportTrustP8, reportHtml, reportIndex } from './commands/reportsCli.js';
+import { claudeSetup, claudeDoctor, claudeGenerateSettings, claudeProviderGuideCmd } from './commands/claudeProductCli.js';
+import { githubInstallWorkflows, githubWorkflowsStatus, ciInstall, ciExplain } from './commands/githubCli.js';
+import { extensionsList, extensionsScan, extensionsValidate, extensionsSecurityReview, extensionsInstall, extensionsDisable } from './commands/extensionsCli.js';
+import { recipesList, recipesShow, recipesRecommend, recipesRun } from './commands/recipesCli.js';
+import { compatibility as compatibilityCmd, compatibilityReport } from './commands/compatibilityCli.js';
+import { releaseCheck, releaseNotes, migrationCheck, migrate as migrateCmd, productScoreCmd, productReport, uxCheckCmd, uxReport, docsCheckCmd } from './commands/releaseCli.js';
+import { examplesList, examplesRun, examplesReport } from './commands/examplesCli.js';
 // --- Phase 7 ---
 import { securityThreatModel, securityThreat, policyValidate, policyExplain, policyCheckCmd, policyViolations, policyReport } from './commands/security.js';
 import { permissionsList, permissionsExplain, permissionsIssue, permissionsRevoke, permissionsAudit } from './commands/permissions.js';
@@ -101,43 +116,171 @@ const HELP = `demo2project — turn demos into project-ready baselines via multi
 Usage:
   demo2project <command> [--flags]
 
-Commands:
-  init                            Bootstrap config files in the current dir
-  analyze     --project <path>    Print ProjectSnapshot + ProjectScore
-  gap         --project <path>    Print GapReport
-  plan        --project <path>    Print IterationPlan
-              --goal <text>
-  iterate     --project <path>    Run one or more iteration rounds
-              --goal <text>
-              --max-iterations <n>
-              --provider mock|local-command|rule-based|claude-code
-              --mode happy|change_without_verify|change_with_unable_reason|noop  (mock only)
-  qa:preflight --project <path>   Load QA cases and report active count
-  qa:learn    --events <file>     Generate QA cases from a JSON array of events
-              --project <path>
-  qa:regression --project <path>  Run regression spec against project history
-                [--system-root <path>]
-  self-check                      Run analyze/gap/regression against this repo
-  self-iterate                    Read-only: print the plan this repo would apply to itself
-  benchmark                       Score every project under benchmarks/ + examples/
-  eval        --all | --case <n>  A/B comparison: naive baseline vs Demo2Project loop
-  qa:audit    --project <path>    Re-evaluate QA case lifecycles; --apply persists
-  qa:retire   --project <path> --case <id> [--reason <r>]
-  qa:promote  --project <path> --case <id>
-  provider:test --provider <name> Exercise a provider against a synthetic task
+Quickstart (new users):
+  demo2project doctor                            Check environment + config
+  demo2project init --interactive                Setup wizard (recommended)
+  demo2project quickstart --use-example          5-minute demo against bad-demo
+  demo2project next                              Suggest next action
 
-Examples:
-  demo2project analyze --project examples/bad-demo
-  demo2project iterate --project examples/bad-demo --goal "project-ready" --max-iterations 1
-  demo2project qa:regression --project examples/bad-demo
-  demo2project self-check
+Core (read-only or low-risk):
+  init                                           Bootstrap config files
+  doctor                                         Environment + config diagnose
+  analyze     --project <path>                   ProjectSnapshot + ProjectScore
+  gap         --project <path>                   GapReport
+  qa:preflight --project <path>                  Load QA cases
+  qa:regression --project <path>                 Run regression spec
+  self-check                                     Run analyze/gap/regression + Phase 6/7/8 probes
+  trust:check --project <path>                   Repo trust scan (read-only)
+
+Iteration:
+  plan        --project <path>                   IterationPlan (no writes)
+  iterate     --project <path>                   Iteration round (writes per autonomy level)
+  autonomy:run --project <path>                  Long-horizon autonomous session
+
+Reports:
+  report:project --project <path>                Markdown + JSON project report
+  report:security                                Aggregated security report
+  report:trust                                   Trust report
+  report:html --report <path>                    Render JSON report to HTML
+
+Security (Phase 7):
+  policy:validate                                Validate security policy
+  policy:check --command "<cmd>"                 Test a command against policy
+  trust:report                                   Aggregated trust posture
+  audit:verify                                   Verify audit log hash chain
+  secrets:scan --project <path>                  Scan for embedded secrets
+  supply-chain:scan --project <path>             Dependency + script risk scan
+
+Product (Phase 8):
+  config:show / config:validate / config:migrate / config:diff
+  diagnose / troubleshoot / logs:explain --file <path>
+  claude:setup --project <path>                  Install Claude hooks + settings
+  claude:doctor                                  Claude integration diagnose
+  github:install-workflows --project <path>      Install CI templates
+  extensions:list / extensions:install --path <dir>
+  recipes:list / recipes:recommend --project <path>
+  compatibility / release:check / product:score / docs:check / ux:check
+
+Help & info:
+  --help                                         Show this message
+  next                                           Suggest next steps
+  troubleshoot                                   List error codes
+  remediation --error <code>                     Show remediation for an error
+
+(See \`docs/reference/cli.md\` for the full command reference.)
 `;
+// (Legacy help removed in Phase 8; see HELP above.)
 
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
   switch (args.command) {
     case 'init':
+      if (args.flags.interactive || args.flags.profile || args.flags['dry-run'] || args.flags.project) {
+        return initWizard(args.flags);
+      }
       return init(args.flags);
+    case 'doctor':
+      return doctorCmd(args.flags);
+    case 'next':
+      return nextCmd(args.flags);
+    case 'quickstart':
+      return quickstartCmd(args.flags);
+    case 'demo':
+      return quickstartCmd({ ...args.flags, 'use-example': true });
+    case 'config:show':
+      return configShow(args.flags);
+    case 'config:explain':
+      return configExplain(args.flags);
+    case 'config:validate':
+      return configValidate(args.flags);
+    case 'config:migrate':
+      return configMigrate(args.flags);
+    case 'config:diff':
+      return configDiffCmd(args.flags);
+    case 'config:export':
+      return configExport(args.flags);
+    case 'diagnose':
+      return diagnoseCmd(args.flags);
+    case 'logs:explain':
+      return logsExplain(args.flags);
+    case 'troubleshoot':
+      return troubleshoot(args.flags);
+    case 'remediation':
+      return remediation(args.flags);
+    case 'report:project':
+      return reportProject(args.flags);
+    case 'report:security':
+      return reportSecurity(args.flags);
+    case 'report:trust':
+      return reportTrustP8(args.flags);
+    case 'report:html':
+      return reportHtml(args.flags);
+    case 'report:index':
+      return reportIndex(args.flags);
+    case 'claude:setup':
+      return claudeSetup(args.flags);
+    case 'claude:doctor':
+      return claudeDoctor(args.flags);
+    case 'claude:generate-settings':
+      return claudeGenerateSettings(args.flags);
+    case 'claude:provider-guide':
+      return claudeProviderGuideCmd(args.flags);
+    case 'github:install-workflows':
+      return githubInstallWorkflows(args.flags);
+    case 'github:workflows-status':
+      return githubWorkflowsStatus(args.flags);
+    case 'ci:install':
+      return ciInstall(args.flags);
+    case 'ci:explain':
+      return ciExplain(args.flags);
+    case 'extensions:list':
+      return extensionsList(args.flags);
+    case 'extensions:scan':
+      return extensionsScan(args.flags);
+    case 'extensions:validate':
+      return extensionsValidate(args.flags);
+    case 'extensions:security-review':
+      return extensionsSecurityReview(args.flags);
+    case 'extensions:install':
+      return extensionsInstall(args.flags);
+    case 'extensions:disable':
+      return extensionsDisable(args.flags);
+    case 'recipes:list':
+      return recipesList(args.flags);
+    case 'recipes:show':
+      return recipesShow(args.flags);
+    case 'recipes:recommend':
+      return recipesRecommend(args.flags);
+    case 'recipes:run':
+      return recipesRun(args.flags);
+    case 'compatibility':
+      return compatibilityCmd(args.flags);
+    case 'compatibility:report':
+      return compatibilityReport(args.flags);
+    case 'release:check':
+      return releaseCheck(args.flags);
+    case 'release:notes':
+      return releaseNotes(args.flags);
+    case 'migration:check':
+      return migrationCheck(args.flags);
+    case 'migrate':
+      return migrateCmd(args.flags);
+    case 'product:score':
+      return productScoreCmd(args.flags);
+    case 'product:report':
+      return productReport(args.flags);
+    case 'ux:check':
+      return uxCheckCmd(args.flags);
+    case 'ux:report':
+      return uxReport(args.flags);
+    case 'docs:check':
+      return docsCheckCmd(args.flags);
+    case 'examples:list':
+      return examplesList(args.flags);
+    case 'examples:run':
+      return examplesRun(args.flags);
+    case 'examples:report':
+      return examplesReport(args.flags);
     case 'analyze':
       return analyze(args.flags);
     case 'gap':

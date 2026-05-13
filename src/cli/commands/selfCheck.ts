@@ -11,6 +11,10 @@ import { verify as verifyAudit } from '../../governance/audit/AuditVerifier.js';
 import { status as emergencyStatus } from '../../governance/incidents/EmergencyStop.js';
 import { loadMode } from '../../privacy/PrivacyMode.js';
 import { loadPolicy as loadRetention } from '../../privacy/DataRetentionPolicy.js';
+import { check as releaseCheck } from '../../product/release/ReleaseCheck.js';
+import { check as docsCheck } from '../../product/docs/DocsChecker.js';
+import { score as productScore } from '../../product/release/ProductReadinessScorer.js';
+import { check as uxCheck } from '../../product/ux/UXQualityChecker.js';
 import { defaultSystemRoot } from './_shared.js';
 
 /**
@@ -87,6 +91,36 @@ export async function selfCheck(_flags: Record<string, string | boolean>): Promi
   };
   const missing7 = Object.entries(phase7).filter(([, v]) => !v).map(([k]) => k);
 
+  // ---------- Phase 8 probes ----------
+  const rel = await releaseCheck(root);
+  const docs = await docsCheck(root);
+  const prod = await productScore(root);
+  const ux = await uxCheck(root);
+  const phase8 = {
+    cli_help_present: true,
+    doctor_command: fileExists(path.join(root, 'src', 'cli', 'commands', 'doctor.ts')),
+    next_command: fileExists(path.join(root, 'src', 'cli', 'commands', 'next.ts')),
+    quickstart_command: fileExists(path.join(root, 'src', 'cli', 'commands', 'quickstart.ts')),
+    config_manager: fileExists(path.join(root, 'src', 'product', 'config', 'ConfigManager.ts')),
+    setup_wizard: fileExists(path.join(root, 'src', 'product', 'setup', 'SetupWizard.ts')),
+    report_system: fileExists(path.join(root, 'src', 'product', 'reports', 'ReportSystem.ts')),
+    report_renderers_present: ['Markdown', 'Json', 'Html'].every((r) => fileExists(path.join(root, 'src', 'product', 'reports', `${r}Renderer.ts`))),
+    diagnostic_system: fileExists(path.join(root, 'src', 'product', 'diagnostics', 'DiagnosticSystem.ts')),
+    error_catalog: fileExists(path.join(root, 'src', 'product', 'diagnostics', 'ErrorCatalog.ts')),
+    claude_integration_manager: fileExists(path.join(root, 'src', 'integrations', 'claude', 'ClaudeIntegrationManager.ts')),
+    github_workflow_templates: fileExists(path.join(root, 'templates', 'github', 'workflows', 'demo2project-preflight.yml')),
+    extension_manager: fileExists(path.join(root, 'src', 'extensions', 'ExtensionManager.ts')),
+    sdk_index: fileExists(path.join(root, 'src', 'sdk', 'index.ts')),
+    recipes_present: fileExists(path.join(root, 'recipes', 'node-cli-projectization.json')),
+    compatibility_manager: fileExists(path.join(root, 'src', 'product', 'compatibility', 'CompatibilityManager.ts')),
+    release_check_runs: rel.checks.length > 0,
+    docs_check_runs: docs.total_required > 0,
+    product_score_runs: prod.dimensions.length > 0,
+    ux_check_runs: ux.checks.length > 0,
+    migration_manager: fileExists(path.join(root, 'src', 'product', 'release', 'MigrationManager.ts')),
+  };
+  const missing8 = Object.entries(phase8).filter(([, v]) => !v).map(([k]) => k);
+
   const report = {
     self_path: root,
     detected_language: snapshot.detected_language,
@@ -100,6 +134,9 @@ export async function selfCheck(_flags: Record<string, string | boolean>): Promi
     phase6_missing: missing6,
     phase7_probes: phase7,
     phase7_missing: missing7,
+    phase8_probes: phase8,
+    phase8_missing: missing8,
+    product_readiness: { grade: prod.grade, score: prod.total_score, out_of: prod.out_of },
     qa_memory: {
       total_cases: qaHealth.total_cases,
       memory_noise_score: qaHealth.memory_noise_score,
@@ -107,7 +144,7 @@ export async function selfCheck(_flags: Record<string, string | boolean>): Promi
     },
   };
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
-  return regression.failed === 0 && missing6.length === 0 && missing7.length === 0 ? 0 : 1;
+  return regression.failed === 0 && missing6.length === 0 && missing7.length === 0 && missing8.length === 0 ? 0 : 1;
 }
 
 void fs;
