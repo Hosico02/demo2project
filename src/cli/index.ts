@@ -34,6 +34,21 @@ import { generalize } from './commands/generalize.js';
 import { workspaceReport } from './commands/workspaceReport.js';
 import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
 import { redactTest } from './commands/redactTest.js';
+// --- Phase 7 ---
+import { securityThreatModel, securityThreat, policyValidate, policyExplain, policyCheckCmd, policyViolations, policyReport } from './commands/security.js';
+import { permissionsList, permissionsExplain, permissionsIssue, permissionsRevoke, permissionsAudit } from './commands/permissions.js';
+import { trustCheck, trustSet, repoQuarantine, repoUnquarantine, trustReport, trustExplain } from './commands/trust.js';
+import { promptInjectionScan, promptInjectionExplain } from './commands/promptInjection.js';
+import { secretsScan, secretsScanLog, secretsReport } from './commands/secrets.js';
+import { supplyChainScan, supplyChainDiff, supplyChainReport } from './commands/supplyChain.js';
+import { guardCheckCommand, guardCheckFile, guardReport } from './commands/guard.js';
+import { approvalList, approvalShow, approvalApprove, approvalReject, approvalRevoke } from './commands/approvalNew.js';
+import { auditShow, auditVerify, auditReport, auditExplain } from './commands/audit.js';
+import { incidentList, incidentShow, incidentResolve, emergencyStop, emergencyStatus, emergencyResume } from './commands/incident.js';
+import { privacyMode, privacySetMode, privacyInventory, privacyDelete, retentionPolicy, retentionCleanup } from './commands/privacy.js';
+import { pluginScan, mcpScan, hooksScan, integrationSecurityReport } from './commands/integrations.js';
+import { governanceRoles, governanceWhoami, governanceCan, governanceReport as govReport7 } from './commands/governanceEnterprise.js';
+import { claudeInstallSecurityHooks, claudeUninstallSecurityHooks, claudeHooksStatus } from './commands/claudeSecurityHooks.js';
 // --- Phase 6 ---
 import { autonomyPolicyCmd, autonomySetLevelCmd, autonomyExplainCmd } from './commands/autonomy.js';
 import { autonomyRun, autonomyStatus, autonomyReport, trendShow, trendExplain } from './commands/autonomyRun.js';
@@ -315,6 +330,129 @@ async function main(): Promise<number> {
       return handoffCreate(args.flags);
     case 'handoff:show':
       return handoffShow(args.flags);
+    // --- Phase 7: security ---
+    case 'security:threat-model':
+      return securityThreatModel(args.flags);
+    case 'security:threat':
+      return securityThreat(args.flags);
+    case 'policy:validate':
+      return policyValidate();
+    case 'policy:explain':
+      return policyExplain(args.flags);
+    case 'policy:check':
+      return policyCheckCmd(args.flags);
+    case 'policy:violations':
+      return policyViolations(args.flags);
+    case 'policy:report':
+      return policyReport();
+    case 'permissions:list':
+      return permissionsList();
+    case 'permissions:explain':
+      return permissionsExplain(args.flags);
+    case 'permissions:issue':
+      return permissionsIssue(args.flags);
+    case 'permissions:revoke':
+      return permissionsRevoke(args.flags);
+    case 'permissions:audit':
+      return permissionsAudit();
+    case 'trust:check':
+      return trustCheck(args.flags);
+    case 'trust:set':
+      return trustSet(args.flags);
+    case 'trust:report':
+      return trustReport(args.flags);
+    case 'trust:explain':
+      return trustExplain(args.flags);
+    case 'repo:quarantine':
+      return repoQuarantine(args.flags);
+    case 'repo:unquarantine':
+      return repoUnquarantine(args.flags);
+    case 'prompt-injection:scan':
+      return promptInjectionScan(args.flags);
+    case 'prompt-injection:explain':
+      return promptInjectionExplain(args.flags);
+    case 'secrets:scan':
+      return secretsScan(args.flags);
+    case 'secrets:scan-log':
+      return secretsScanLog(args.flags);
+    case 'secrets:report':
+      return secretsReport(args.flags);
+    case 'supply-chain:scan':
+      return supplyChainScan(args.flags);
+    case 'supply-chain:diff':
+      return supplyChainDiff(args.flags);
+    case 'supply-chain:report':
+      return supplyChainReport(args.flags);
+    case 'guard:check-command':
+      return guardCheckCommand(args.flags);
+    case 'guard:check-file':
+      return guardCheckFile(args.flags);
+    case 'guard:report':
+      return guardReport();
+    case 'approval:list':
+      return approvalList();
+    case 'approval:show':
+      return approvalShow(args.flags);
+    case 'approval:approve':
+      return approvalApprove(args.flags);
+    case 'approval:reject':
+      return approvalReject(args.flags);
+    case 'approval:revoke':
+      return approvalRevoke(args.flags);
+    case 'audit:show':
+      return auditShow(args.flags);
+    case 'audit:verify':
+      return auditVerify();
+    case 'audit:report':
+      return auditReport();
+    case 'audit:explain':
+      return auditExplain(args.flags);
+    case 'incident:list':
+      return incidentList();
+    case 'incident:show':
+      return incidentShow(args.flags);
+    case 'incident:resolve':
+      return incidentResolve(args.flags);
+    case 'emergency:stop':
+      return emergencyStop(args.flags);
+    case 'emergency:status':
+      return emergencyStatus();
+    case 'emergency:resume':
+      return emergencyResume(args.flags);
+    case 'privacy:mode':
+      return privacyMode();
+    case 'privacy:set-mode':
+      return privacySetMode(args.flags);
+    case 'privacy:inventory':
+      return privacyInventory(args.flags);
+    case 'privacy:delete':
+      return privacyDelete(args.flags);
+    case 'retention:policy':
+      return retentionPolicy(args.flags);
+    case 'retention:cleanup':
+      return retentionCleanup(args.flags);
+    case 'plugin:scan':
+      return pluginScan(args.flags);
+    case 'mcp:scan':
+      return mcpScan(args.flags);
+    case 'hooks:scan':
+      return hooksScan(args.flags);
+    case 'integration:security-report':
+      return integrationSecurityReport(args.flags);
+    case 'governance:roles':
+      return governanceRoles();
+    case 'governance:whoami':
+      return governanceWhoami();
+    case 'governance:can':
+      return governanceCan(args.flags);
+    case 'governance:report':
+      return govReport7();
+    case 'claude:install-security-hooks':
+      return claudeInstallSecurityHooks(args.flags);
+    case 'claude:uninstall-security-hooks':
+      return claudeUninstallSecurityHooks(args.flags);
+    case 'claude:hooks-status':
+      return claudeHooksStatus(args.flags);
     case 'help':
     case '--help':
     case '-h':

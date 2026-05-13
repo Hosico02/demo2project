@@ -405,3 +405,27 @@ explicitly deferred — the slice exists, the integration does not.
 - **Phase 6** ✅ slice: a second bad-demo (Python) and a `benchmark` CLI that
   scores every project under `examples/` and prints a table. ⏳ still future:
   paired before/after benchmarks and CI integration.
+
+## Phase 7: Trust, Safety, Security & Enterprise-Grade Governance
+
+Phase 7 turns Demo2Project from "can run autonomously" into "can be trusted
+to run autonomously in an enterprise". It adds:
+
+- **Threat model** (20 named threats; `security:threat-model`)
+- **SecurityPolicyEngine** with 25-rule default policy (`policy:check`, `policy:violations`)
+- **CapabilityManager** — time- and use-bounded permission tokens with high-risk gating
+- **Untrusted repository mode** — unknown repos blocked from network / install / hooks
+- **PromptInjectionScanner + PromptContextSanitizer** — repo content cannot override system policy
+- **SecretScanner / SecretExposureDetector** — over both project files and persisted state
+- **SupplyChainGuard** — typo-squat heuristic, lifecycle script analysis, lockfile diff
+- **CommandGuard / FileAccessGuard / NetworkGuard** with `GuardedCommandRunner` and `GuardedFileSystem`
+- **ApprovalWorkflow** — risk-tiered, role-based, scope-bound, expiring
+- **AuditLog with SHA-256 hash chain** — `audit:verify` detects silent tampering
+- **IncidentManager + EmergencyStop** — auto-stop on critical incidents
+- **PrivacyMode** (4 levels) + **DataRetentionPolicy** + **DataInventory** + **DataDeletion**
+- **Plugin / MCP / Hook scanners** (defense in depth, not security boundary)
+- **Enterprise governance** — 6 roles, team policy, dual-approval option
+- **TrustReport** — single document summarising current safety posture
+- **8 new Claude CLI security hooks** — same checks one layer closer to the model
+
+See `docs/security-overview.md` for the full guide.

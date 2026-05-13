@@ -1,6 +1,10 @@
 import path from 'node:path';
 import { fileExists } from '../../utils/fs.js';
 
+export function defaultSystemRoot(): string {
+  return path.resolve(new URL('../../..', import.meta.url).pathname);
+}
+
 export function requireProject(flags: Record<string, string | boolean>): string | null {
   const raw = flags.project;
   if (typeof raw !== 'string' || !raw) {

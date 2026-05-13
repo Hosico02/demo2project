@@ -33,6 +33,7 @@ const pairs = [
   ['src/standards/archetypes', 'dist/standards/archetypes'],
   ['src/standards/learned', 'dist/standards/learned'],
   ['templates', 'dist/templates'],
+  ['src/security/policy', 'dist/security/policy'],
 ];
 let copied = 0;
 for (const [s, d] of pairs) {
