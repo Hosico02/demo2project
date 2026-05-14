@@ -30,15 +30,14 @@ Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/qui
 
 Web app: [`site/`](site/). The MatrixOmnix interface is a Vite/Vue app based
 on the original MatrixOmnix visual language, with Home, About, Service and
-Contact views. The Service view accepts demo archives (`zip`, `7z`, `rar`,
-`tar`, `tar.gz`, `tgz`) and documents the productization contract: every
-completed artifact is returned as a normalized `zip`.
+Contact views. The Service view is a beta usage guide for running MatrixOmnix
+locally; hosted file intake and artifact packaging flows are intentionally not
+exposed yet.
 
 Live site: <https://matrixomnix.vercel.app>
 
 Deployment guide: [`docs/deployment.md`](docs/deployment.md). The repository
-includes Vercel, Render and Supabase configuration for a hosted MatrixOmnix
-deployment.
+includes Vercel and Render configuration for the MatrixOmnix web surface.
 
 ---
 
@@ -266,9 +265,9 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 - Reviewer is rule-based, not diff-based.
 - Score weights are heuristic; tune via `config/project-standard.json`.
 - QA runner asserts over recorded *events*, not live re-runs of commands.
-- The static MatrixOmnix Service page validates upload intent and archive
-  format; production upload processing still needs a deployed API/service
-  boundary wired to the CLI long-run pipeline.
+- The MatrixOmnix web Service page is a beta usage guide. Hosted file intake,
+  queued processing and artifact packaging are deferred until the productization
+  pipeline has stronger production guarantees.
 
 ---
 

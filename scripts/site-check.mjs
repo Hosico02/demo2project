@@ -41,12 +41,13 @@ record('no-static-pages', !existsSync(path.join(site, 'about.html')) && !existsS
 record('matrixomnix-brand', /MatrixOmnix/.test(app) && /全域智能矩阵/.test(app), 'MatrixOmnix brand appears in Vue app');
 record('nav-pages', /id: 'about'/.test(app) && /id: 'service'/.test(app) && /id: 'contact'/.test(app), 'Vue app defines About, Service and Contact pages');
 record('home-hero-panel-separation', /<template v-if="page === 'home'">[\s\S]*<section class="hero"[\s\S]*<\/section>\s*<section class="panel-grid"/.test(app), 'Home hero centers title separately from capability panels');
+record('home-only-cursor', /v-if="page === 'home'" class="cursor-capture"/.test(app) && /v-if="page === 'home'" class="cursor-core"/.test(app), 'Custom cursor renders only on Home');
 record('about-images', /framework-loop\.svg/.test(app) && /harness-map\.svg/.test(app) && /deployment-flow\.svg/.test(app), 'About page uses framework images');
 record('github-url', /https:\/\/github\.com\/Hosico02\/demo2project/.test(app), 'open source URL is present');
-record('service-upload-input', /type="file"[\s\S]*data-demo-upload/.test(app), 'service page has upload input');
-record('service-archive-accept', /\.zip/.test(app) && /\.7z/.test(app) && /\.rar/.test(app) && /\.tar/.test(app), 'service accepts common archive formats');
-record('service-return-zip', /data-return-format="zip"/.test(app) && /Output:\s*zip/.test(app), 'service returns normalized zip artifacts');
-record('archive-validation', /allowed\s*=\s*\[[\s\S]*'zip'[\s\S]*'7z'[\s\S]*'tar\.gz'/.test(app), 'Vue app validates archive extensions');
+record('home-beta-copy', /currently in beta/.test(app), 'Home copy states MatrixOmnix is beta');
+record('service-usage-guide', /data-service-guide/.test(app) && /Beta workflow/.test(app) && /pnpm matrixomnix analyze --project/.test(app), 'Service page explains beta CLI usage');
+record('service-no-upload-form', !/data-upload-form|data-demo-upload|type="file"|data-return-format/.test(app), 'Service page does not present hosted upload or return service');
+record('service-no-upload-copy', !/Upload a demo|Receive a product zip|Output:\s*zip|uploaded demo archive|returned product|product zip artifacts/i.test(app + index), 'Service copy does not claim hosted upload/return is available');
 record('keyboard-flip', /onKeydown/.test(app) && /Enter/.test(app) && /Escape/.test(app), 'flip panels support keyboard interaction');
 record('pointer-raf', /requestAnimationFrame/.test(app) && /pointermove/.test(app), 'cursor effect is throttled through requestAnimationFrame');
 record('css-no-hidden-cursor', !/cursor\s*:\s*none/.test(css), 'site does not hide the system cursor globally');

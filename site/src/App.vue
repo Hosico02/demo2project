@@ -1,7 +1,7 @@
 <template>
   <div class="app-shell" :style="cursorStyle">
-    <div class="cursor-capture" aria-hidden="true"></div>
-    <div class="cursor-core" aria-hidden="true"></div>
+    <div v-if="page === 'home'" class="cursor-capture" aria-hidden="true"></div>
+    <div v-if="page === 'home'" class="cursor-core" aria-hidden="true"></div>
 
     <header class="topbar">
       <button class="brand" type="button" @click="navigate('home')" aria-label="MatrixOmnix home">
@@ -34,27 +34,27 @@
             </div>
 
             <p class="subcopy">
-              A production-grade multi-agent harness that turns raw demo archives into verified product zip artifacts.
+              MatrixOmnix is currently in beta: a multi-agent harness for turning rough demos into verified product baselines.
             </p>
           </div>
         </section>
 
         <section class="panel-grid" aria-label="MatrixOmnix capability panels">
           <FlipPanel id="intake" title="Intake" :active="flippedPanels.has('intake')" @open="flipOn" @close="flipOff">
-            Single files, zip archives and rough repositories are normalized into a safe productization workspace.
+            Point MatrixOmnix at a local demo repository to detect runtime, entrypoints, project surfaces and immediate product gaps.
           </FlipPanel>
           <FlipPanel id="verify" title="Verify" :active="flippedPanels.has('verify')" @open="flipOn" @close="flipOff">
             Analyzer, Planner, Executor, Verifier, Reviewer and QA Memory require evidence before claiming progress.
           </FlipPanel>
-          <FlipPanel id="ship" title="Ship" :active="flippedPanels.has('ship')" @open="flipOn" @close="flipOff">
-            The service returns a productized zip with source, tests, docs, reports and reproducible harness scripts.
+          <FlipPanel id="operate" title="Operate" :active="flippedPanels.has('operate')" @open="flipOn" @close="flipOff">
+            Use the CLI to run controlled iterations, inspect evidence, replay QA regressions and decide when a demo is product-ready.
           </FlipPanel>
         </section>
       </template>
 
       <section v-else-if="page === 'about'" class="content-page about-page" id="about">
         <PageHeading kicker="About" title="MatrixOmnix is a demo-to-product operating system.">
-          Today it is a production-grade multi-agent harness for productizing demos. Next it becomes a hosted service where users upload a demo archive and receive a product zip with verification evidence.
+          Today it is a beta multi-agent harness for productizing local demo repositories. Next it becomes a managed service with controlled workspaces, clearer product gates and auditable long-horizon runs.
         </PageHeading>
 
         <div class="image-grid" aria-label="MatrixOmnix framework diagrams">
@@ -67,8 +67,8 @@
             <figcaption>Harness coverage map</figcaption>
           </figure>
           <figure>
-            <img src="./assets/deployment-flow.svg" alt="Deployment flow from uploaded demo archive to Supabase storage, MatrixOmnix worker and returned product zip." />
-            <figcaption>Hosted service flow</figcaption>
+            <img src="./assets/deployment-flow.svg" alt="MatrixOmnix beta roadmap from local CLI usage to managed workspaces and hosted orchestration." />
+            <figcaption>Beta-to-hosted roadmap</figcaption>
           </figure>
         </div>
 
@@ -82,7 +82,7 @@
           <article>
             <h2>Future</h2>
             <p>
-              The hosted MatrixOmnix service will accept demo archives, isolate execution, run long-horizon productization, package the final result as zip and expose traceable reports.
+              The hosted MatrixOmnix service will move from local CLI operation toward managed workspaces, queued runs, team visibility and traceable reports.
             </p>
           </article>
         </section>
@@ -93,36 +93,26 @@
       </section>
 
       <section v-else-if="page === 'service'" class="content-page service-page" id="service">
-        <PageHeading kicker="Service" title="Upload a demo. Receive a product zip.">
-          MatrixOmnix accepts compressed demo projects, runs the productization harness, then returns one normalized zip artifact for broad compatibility.
+        <PageHeading kicker="Service" title="How to use MatrixOmnix beta.">
+          MatrixOmnix is not a hosted file-processing service yet. Use the beta locally from the CLI, review every verification report, and keep productization changes under source control.
         </PageHeading>
 
-        <section class="service-layout">
-          <form class="upload-panel" data-upload-form data-return-format="zip" @submit.prevent="prepareUpload">
-            <label for="demo-archive">Demo archive</label>
-            <input
-              id="demo-archive"
-              ref="fileInputRef"
-              name="demo-archive"
-              type="file"
-              data-demo-upload
-              accept=".zip,.7z,.rar,.tar,.tar.gz,.tgz,application/zip,application/x-7z-compressed,application/x-rar-compressed,application/gzip"
-              @change="updateUploadStatus"
-            />
-            <div class="upload-meta">
-              <span>Input: zip, 7z, rar, tar, tar.gz, tgz</span>
-              <span>Output: zip</span>
-            </div>
-            <button type="submit">Prepare Productization</button>
-            <p class="upload-status" :data-state="uploadReady ? 'ready' : 'idle'" role="status" aria-live="polite">
-              {{ uploadStatus }}
+        <section class="service-layout" data-service-guide>
+          <article class="usage-card">
+            <h2>Beta workflow</h2>
+            <p>
+              Install the repo, point MatrixOmnix at a demo project, run analysis and gap checks, then let controlled iterations make scoped improvements with verification evidence.
             </p>
-          </form>
+            <code>pnpm install && pnpm build</code>
+            <code>pnpm matrixomnix doctor</code>
+            <code>pnpm matrixomnix analyze --project ./demo</code>
+          </article>
 
           <ol class="usage-steps">
-            <li><strong>Intake</strong><span>Detect entrypoints, runtime, dependencies, secrets, UI/API/CLI/data/worker surfaces and archive safety.</span></li>
-            <li><strong>Iterate</strong><span>Run analyzer, planner, executor, verifier, reviewer and QA memory until product gates are satisfied.</span></li>
-            <li><strong>Return</strong><span>Package product source, tests, docs, reports and evidence into one zip artifact.</span></li>
+            <li><strong>Analyze</strong><span>Detect runtime, dependencies, entrypoints, UI/API/CLI/data/worker surfaces, secrets risk and missing project contracts.</span></li>
+            <li><strong>Plan</strong><span>Convert gaps into scoped work with acceptance checks, fallback paths and evidence requirements.</span></li>
+            <li><strong>Iterate</strong><span>Run one or more controlled executor rounds, then inspect generated reports before trusting the result.</span></li>
+            <li><strong>Verify</strong><span>Run tests, site checks, QA regression memory and project reports before calling a demo product-ready.</span></li>
           </ol>
         </section>
 
@@ -170,10 +160,7 @@ const cursorY = ref(window.innerHeight / 2)
 const maskX = ref(window.innerWidth / 2)
 const maskY = ref(window.innerHeight / 2)
 const titleStackRef = ref(null)
-const fileInputRef = ref(null)
 const flippedPanels = ref(new Set())
-const uploadStatus = ref('No archive selected.')
-const uploadReady = ref(false)
 
 const cursorStyle = computed(() => ({
   '--cursor-x': `${cursorX.value}px`,
@@ -199,35 +186,6 @@ const flipOff = (id) => {
   const next = new Set(flippedPanels.value)
   next.delete(id)
   flippedPanels.value = next
-}
-
-const archiveExtension = (fileName) => {
-  const lower = fileName.toLowerCase()
-  if (lower.endsWith('.tar.gz')) return 'tar.gz'
-  return lower.split('.').pop() || ''
-}
-
-const validateArchive = (file) => {
-  const allowed = ['zip', '7z', 'rar', 'tar', 'tar.gz', 'tgz']
-  if (!file) return { ok: false, message: 'No archive selected.' }
-  const ext = archiveExtension(file.name)
-  if (!allowed.includes(ext)) {
-    return { ok: false, message: 'Unsupported archive. Upload zip, 7z, rar, tar, tar.gz or tgz.' }
-  }
-  if (file.size > 512 * 1024 * 1024) {
-    return { ok: false, message: 'Archive is larger than the 512 MB service limit.' }
-  }
-  return { ok: true, message: `${file.name} is ready. MatrixOmnix will return a product zip artifact.` }
-}
-
-const updateUploadStatus = () => {
-  const result = validateArchive(fileInputRef.value?.files?.[0])
-  uploadReady.value = result.ok
-  uploadStatus.value = result.message
-}
-
-const prepareUpload = () => {
-  updateUploadStatus()
 }
 
 let cleanup = () => {}
@@ -256,7 +214,7 @@ onMounted(() => {
   }
 
   const onPointerMove = (event) => {
-    if (event.pointerType !== 'mouse') return
+    if (event.pointerType !== 'mouse' || page.value !== 'home') return
     scheduleUpdate(event.clientX, event.clientY)
   }
 

@@ -8,7 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
 describe('MatrixOmnix site', () => {
-  it('ships a Vite/Vue app with About, Service and Contact routes plus upload contract checks', async () => {
+  it('ships a Vite/Vue app with About, Service and Contact routes plus beta usage guidance', async () => {
     const result = await runCommand('node scripts/site-check.mjs', {
       cwd: root,
       timeoutMs: 20_000,
@@ -16,10 +16,16 @@ describe('MatrixOmnix site', () => {
     expect(result.passed).toBe(true);
 
     const app = await fs.readFile(path.join(root, 'site', 'src', 'App.vue'), 'utf8');
-    expect(app).toContain('data-return-format="zip"');
-    expect(app).toContain('data-demo-upload');
-    expect(app).toContain('.7z');
-    expect(app).toContain('Output: zip');
+    expect(app).toContain('currently in beta');
+    expect(app).toContain('data-service-guide');
+    expect(app).toContain('Beta workflow');
+    expect(app).toContain('pnpm matrixomnix analyze --project ./demo');
+    expect(app).toContain('v-if="page === \'home\'" class="cursor-capture"');
+    expect(app).toContain('v-if="page === \'home\'" class="cursor-core"');
+    expect(app).not.toContain('data-return-format="zip"');
+    expect(app).not.toContain('data-demo-upload');
+    expect(app).not.toContain('type="file"');
+    expect(app).not.toContain('Receive a product zip');
     expect(app).toContain('framework-loop.svg');
     expect(app).toContain('harness-map.svg');
     expect(app).toContain('deployment-flow.svg');

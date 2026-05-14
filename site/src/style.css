@@ -373,7 +373,7 @@ input:focus-visible,
 
 .image-grid figure,
 .text-grid article,
-.upload-panel,
+.usage-card,
 .usage-steps,
 .contact-grid a,
 .repo-link,
@@ -402,7 +402,7 @@ input:focus-visible,
 }
 
 .text-grid article,
-.upload-panel,
+.usage-card,
 .usage-steps,
 .contact-grid a {
   padding: 28px;
@@ -421,48 +421,30 @@ input:focus-visible,
   text-underline-offset: 4px;
 }
 
-.upload-panel {
+.usage-card {
   display: grid;
-  gap: 16px;
+  gap: 14px;
+  align-content: start;
 }
 
-.upload-panel label {
-  font-weight: 800;
+.usage-card h2 {
+  margin: 0;
+  font-size: 1.45rem;
 }
 
-.upload-panel input {
-  width: 100%;
-  min-height: 48px;
-  padding: 12px;
-  border: 1px solid #111;
-}
-
-.upload-panel button {
-  min-height: 48px;
-  border: 1px solid #111;
-  background: #111;
-  color: #fff;
-  cursor: pointer;
-  font-weight: 800;
-}
-
-.upload-meta {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.upload-status {
-  min-height: 28px;
+.usage-card p {
   margin: 0;
   color: var(--muted);
+  line-height: 1.7;
 }
 
-.upload-status[data-state="ready"] {
-  color: #0f766e;
-  font-weight: 800;
+.usage-card code {
+  display: block;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: #f5f6f7;
+  white-space: nowrap;
 }
 
 .usage-steps {

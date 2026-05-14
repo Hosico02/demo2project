@@ -1,7 +1,7 @@
 # MatrixOmnix Deployment
 
-MatrixOmnix ships a Vite/Vue web app in `site/` and keeps the productization
-engine in the repository root.
+MatrixOmnix ships a Vite/Vue web app in `site/` and keeps the beta
+productization engine in the repository root.
 
 ## Vercel
 
@@ -34,19 +34,9 @@ Publish path:
 site/dist
 ```
 
-## Supabase
+## Deferred Backend
 
-Supabase is used for the hosted upload/product-artifact contract:
-
-- `demo-archives` stores uploaded demo archives.
-- `product-artifacts` stores returned product zip artifacts.
-- `productization_jobs` tracks status and always records `return_format = zip`.
-
-```bash
-supabase link --project-ref <project-ref>
-supabase db push
-```
-
-The frontend currently validates archive type and size locally. A production
-upload flow should use signed uploads or authenticated Supabase Storage calls,
-then queue a MatrixOmnix worker to produce the product zip.
+Hosted file intake, queued productization and artifact packaging flows are
+intentionally not active in the beta site. Keep the public product surface
+focused on local CLI usage until the worker, storage, isolation and review
+pipeline are ready for production operation.
