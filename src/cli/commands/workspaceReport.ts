@@ -11,14 +11,16 @@ import { CostTracker } from '../../core/costTracker.js';
  * report:workspace — bundles all Phase-5 aggregations into one folder of
  * markdown + json under reports/workspace/.
  */
-export async function workspaceReport(_flags: Record<string, string | boolean>): Promise<number> {
+export async function workspaceReport(flags: Record<string, string | boolean>): Promise<number> {
   const systemRoot = path.resolve(new URL('../../..', import.meta.url).pathname);
-  const dir = path.join(systemRoot, 'reports', 'workspace');
+  const dir = typeof flags['output-dir'] === 'string'
+    ? path.resolve(flags['output-dir'])
+    : path.join(systemRoot, 'reports', 'workspace');
   await ensureDir(dir);
 
   const gen = await runGeneralization({ systemRoot });
   const corp = await corpusList({ systemRoot });
-  const corpRep = await corpusReport({ systemRoot });
+  const corpRep = await corpusReport({ systemRoot, outputDir: dir });
   const patterns = await loadPatterns(systemRoot);
   const suggestions = await listSuggestions(systemRoot);
 

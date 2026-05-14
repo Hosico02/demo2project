@@ -23,6 +23,7 @@ describe('LongHorizonAutonomyController', () => {
       iterations: 2,
       providerName: 'rule-based',
       systemRoot: repoRoot,
+      updateRegressionSpec: false,
     });
     expect(session.iterations.length).toBeGreaterThan(0);
     expect(['completed', 'stopped', 'rolled_back', 'pending_approval']).toContain(session.status);
@@ -32,7 +33,7 @@ describe('LongHorizonAutonomyController', () => {
   it('emits trend_summary at session end', async () => {
     const proj = await tmpProj();
     const session = await runAutonomySession({
-      projectPath: proj, iterations: 1, providerName: 'rule-based', systemRoot: repoRoot,
+      projectPath: proj, iterations: 1, providerName: 'rule-based', systemRoot: repoRoot, updateRegressionSpec: false,
     });
     expect(session.trend_summary).toBeDefined();
     expect(typeof session.trend_summary!.score_last).toBe('number');

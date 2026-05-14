@@ -15,6 +15,7 @@ import { EventStore } from '../core/eventStore.js';
 import { EvidenceGraph } from '../core/evidenceGraph.js';
 import { CostTracker } from '../core/costTracker.js';
 import { IterationWorkspace } from '../core/iterationWorkspace.js';
+import { buildVerificationRepairTask } from '../core/verificationRepair.js';
 import { QAAgent } from '../qa/QAAgent.js';
 import { QACaseStore } from '../qa/QACaseStore.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
@@ -68,12 +69,12 @@ export class SupervisorAgent {
   private verifier = new VerifierAgent();
   private reviewer: ReviewerAgent;
   private memory = new MemoryAgent();
-  private standard: ProjectStandard;
+  private standard?: ProjectStandard;
 
   constructor(opts: { standard?: ProjectStandard } = {}) {
-    this.standard = opts.standard ?? DEFAULT_PROJECT_STANDARD;
+    this.standard = opts.standard;
     this.analyzer = new AnalyzerAgent(this.standard);
-    this.reviewer = new ReviewerAgent(this.standard);
+    this.reviewer = new ReviewerAgent(this.standard ?? DEFAULT_PROJECT_STANDARD);
   }
 
   async iterate(opts: IterateOptions): Promise<IterationSummary[]> {
@@ -83,7 +84,7 @@ export class SupervisorAgent {
     const caseStore = new QACaseStore(opts.projectPath);
     const qaAgent = new QAAgent(caseStore, this.memory);
 
-    const executor = new ExecutorAgent(opts.provider, this.standard);
+    const executor = new ExecutorAgent(opts.provider, this.standard ?? DEFAULT_PROJECT_STANDARD);
 
     let prevScore = -1;
     let noProgressRounds = 0;
@@ -119,7 +120,10 @@ export class SupervisorAgent {
       }
 
       // 1. analyze
-      const { snapshot, score: scoreBefore, gap } = await this.analyzer.fullAnalyze(opts.projectPath);
+      const { snapshot, score: scoreBefore, gap } = await this.analyzer.fullAnalyzeWithEvidence(
+        opts.projectPath,
+        { runCommands: true, timeoutMs: 60_000 },
+      );
       const graph = new EvidenceGraph(iterationId);
       const snapshotEv = graph.addEvidence({
         type: 'note', source_agent: 'analyzer',
@@ -145,12 +149,37 @@ export class SupervisorAgent {
           metadata: { finding_id: f.id },
         });
       }
+      for (const audit of gap.agent_misjudgments ?? []) {
+        await store.append({
+          iteration_id: iterationId,
+          agent: 'analyzer',
+          event_type: 'note',
+          severity: 'medium',
+          message: `agent misjudgment detected: suppressed ${audit.finding_category} (${audit.reason})`,
+          files_changed: audit.related_files,
+          metadata: {
+            finding_id: audit.finding_id,
+            action: audit.action,
+            confidence: audit.confidence,
+          },
+        });
+        graph.addEvidence({
+          type: 'note',
+          source_agent: 'analyzer',
+          content_summary: `misjudgment audit suppressed ${audit.finding_category}: ${audit.reason}`,
+          confidence: audit.confidence,
+          related_files: audit.related_files,
+          metadata: { finding_id: audit.finding_id, action: audit.action },
+        });
+      }
 
       // 2. preflight QA cases (consults global+workspace+repo scopes when systemRoot is provided)
-      await qaAgent.preflight(iterationId, snapshot, store, { systemRoot: opts.systemRoot });
+      const qaPreflight = await qaAgent.preflight(iterationId, snapshot, store, { systemRoot: opts.systemRoot });
 
       // 3. plan
-      const plan = this.planner.plan(gap, opts.goal, iterationId);
+      const plan = this.planner.plan(gap, opts.goal, iterationId, {
+        qaCases: qaPreflight.cases,
+      });
 
       // 4. execute each task (with optional retry + parallelism)
       const allResults: AgentResult[] = [];
@@ -177,10 +206,15 @@ export class SupervisorAgent {
             iteration_id: iterationId,
             recent_events: await store.readIteration(iterationId),
           });
+          const supervisorVerificationCommands = commandsNeedingSupervisorVerification(
+            task,
+            execResult,
+            opts.extraVerificationCommands ?? [],
+          );
           lastVerified = await this.verifier.verify(
             opts.projectPath,
             execResult,
-            opts.extraVerificationCommands ?? [],
+            supervisorVerificationCommands,
           );
 
           const shouldRetry =
@@ -240,11 +274,33 @@ export class SupervisorAgent {
         return verified;
       };
 
-      // Run in chunks of `parallelism`
+      // Run in chunks of `parallelism`. If verification fails, repair becomes
+      // the next task and ordinary productization work pauses for this round.
+      let haltNormalTasks = false;
       for (let i2 = 0; i2 < plan.tasks.length; i2 += parallelism) {
+        if (haltNormalTasks) break;
         const slice = plan.tasks.slice(i2, i2 + parallelism);
         const results = await Promise.all(slice.map(runOne));
-        for (const r of results) allResults.push(r);
+        for (let idx = 0; idx < results.length; idx++) {
+          const r = results[idx]!;
+          allResults.push(r);
+          const failedTask = slice[idx]!;
+          const repairTask = buildVerificationRepairTask(failedTask, r);
+          if (repairTask) {
+            await store.append({
+              iteration_id: iterationId,
+              agent: 'supervisor',
+              event_type: 'note',
+              severity: 'high',
+              message: `verification failed; prioritizing repair task for "${failedTask.title}"`,
+              metadata: { failed_task_id: failedTask.id, repair_task_id: repairTask.id },
+            });
+            const repairResult = await runOne(repairTask);
+            allResults.push(repairResult);
+            haltNormalTasks = true;
+            break;
+          }
+        }
       }
 
       // 5. QA learn from this iteration
@@ -258,7 +314,13 @@ export class SupervisorAgent {
       }
 
       // 6. re-score
-      const { score: scoreAfter } = await this.analyzer.fullAnalyze(opts.projectPath);
+      const afterAnalysis = await this.analyzer.fullAnalyzeWithEvidence(
+        opts.projectPath,
+        { runCommands: true, timeoutMs: 60_000 },
+      );
+      const scoreAfter = afterAnalysis.score;
+      const gapAfter = afterAnalysis.gap;
+      const fixedDefects = Math.max(0, gap.findings.length - gapAfter.findings.length);
 
       // 7. build & save summary
       const finishedAt = nowIso();
@@ -277,7 +339,7 @@ export class SupervisorAgent {
         qa_cases_created_or_updated: qaCases.map((c) => c.id),
         project_score_before: scoreBefore,
         project_score_after: scoreAfter,
-        next_iteration_recommendations: gap.recommendations,
+        next_iteration_recommendations: gapAfter.recommendations,
         started_at: startedAt,
         finished_at: finishedAt,
       };
@@ -305,7 +367,7 @@ export class SupervisorAgent {
       await graph.persist(opts.projectPath);
       const costRecord = cost.finalize({
         score_delta: scoreAfter.total - scoreBefore.total,
-        defects_fixed: gap.findings.length - (await this.analyzer.fullAnalyze(opts.projectPath)).gap.findings.length,
+        defects_fixed: fixedDefects,
       });
       await CostTracker.persist(opts.projectPath, costRecord);
       await store.append({
@@ -334,8 +396,9 @@ export class SupervisorAgent {
       }
 
       // 8. stop conditions
+      if (gapAfter.findings.length === 0 && gapAfter.blockers.length === 0) break;
       if (scoreAfter.grade === 'production_ready_baseline') break;
-      if (prevScore >= 0 && scoreAfter.total <= prevScore) {
+      if (prevScore >= 0 && scoreAfter.total <= prevScore && fixedDefects === 0) {
         noProgressRounds++;
         if (noProgressRounds >= 2) break;
       } else {
@@ -349,4 +412,18 @@ export class SupervisorAgent {
 
 function dedupe<T>(arr: T[]): T[] {
   return Array.from(new Set(arr));
+}
+
+function commandsNeedingSupervisorVerification(
+  task: AgentTask,
+  result: AgentResult,
+  extraCommands: string[],
+): string[] {
+  const observed = new Set(result.verification_evidence.map((e) => e.command));
+  const reported = new Set(result.commands_run);
+  const taskCommands =
+    result.verification_evidence.length === 0
+      ? task.verification_commands.filter((cmd) => reported.has(cmd))
+      : [];
+  return dedupe([...taskCommands, ...extraCommands].filter((cmd) => !observed.has(cmd)));
 }

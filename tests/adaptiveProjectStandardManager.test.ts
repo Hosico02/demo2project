@@ -10,7 +10,7 @@ describe('AdaptiveProjectStandardManager', () => {
   it('list returns at least 7 archetype standards + generic-project', async () => {
     const names = await listAvailableStandards();
     expect(names.length).toBeGreaterThanOrEqual(8);
-    for (const n of ['generic-project', 'node-cli', 'typescript-library', 'react-app', 'nextjs-app', 'python-package', 'fastapi-api', 'python-cli', 'monorepo', 'docs-only-project', 'agent-framework']) {
+    for (const n of ['generic-project', 'node-cli', 'typescript-library', 'react-app', 'nextjs-app', 'vue-app', 'python-package', 'fastapi-api', 'flask-web-app', 'python-cli', 'monorepo', 'docs-only-project', 'agent-framework']) {
       expect(names).toContain(n);
     }
   });

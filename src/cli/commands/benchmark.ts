@@ -7,6 +7,7 @@ import { RuleBasedExecutor } from '../../agents/providers/RuleBasedExecutor.js';
 import { runDocsTruth } from '../../core/docsTruth.js';
 import { readJsonSafe } from '../../utils/json.js';
 import { flagString, flagNumber } from './_shared.js';
+import { calculateDefectMetrics, defectId, type KnownDefect } from '../../eval/defectMetrics.js';
 
 async function copyDir(src: string, dst: string): Promise<void> {
   await fs.mkdir(dst, { recursive: true });
@@ -27,7 +28,7 @@ interface KnownDefects {
   expected_max_score_before: number;
   expected_min_score_after: number;
   expected_max_iterations: number;
-  defects: { id: string; category: string; severity: string }[];
+  defects: KnownDefect[];
 }
 
 interface BenchmarkRow {
@@ -40,6 +41,9 @@ interface BenchmarkRow {
   defects_known: number;
   defects_detected: number;
   defects_fixed: number;
+  defects_remaining: number;
+  bug_discovery_rate: number;
+  bug_fix_rate: number;
   verification_commands_run: number;
   qa_cases_created: number;
   regressions_introduced: number;
@@ -88,9 +92,8 @@ export async function benchmark(flags: Record<string, string | boolean>): Promis
     const analyzer = new AnalyzerAgent();
     const { score: scoreBefore, gap: gapBefore, standard_name: stdBefore } =
       await analyzer.fullAnalyze(sandbox);
-    const knownIds = new Set((known?.defects ?? []).map((d) => d.id));
-    const detectedCats = new Set(gapBefore.findings.map((f) => f.category));
-    const detectedKnown = (known?.defects ?? []).filter((d) => detectedCats.has(d.category));
+    const knownIds = new Set((known?.defects ?? []).map(defectId));
+    const docsBefore = await runDocsTruth(sandbox);
 
     const supervisor = new SupervisorAgent();
     const summaries = await supervisor.iterate({
@@ -102,12 +105,16 @@ export async function benchmark(flags: Record<string, string | boolean>): Promis
     });
 
     const { score: scoreAfter, gap: gapAfter } = await analyzer.fullAnalyze(sandbox);
-    const stillPresent = (known?.defects ?? []).filter((d) =>
-      gapAfter.findings.some((f) => f.category === d.category),
-    );
     const verificationRuns = summaries.reduce((a, s) => a + s.verification_results.length, 0);
     const qaCases = summaries.reduce((a, s) => a + s.qa_cases_created_or_updated.length, 0);
     const docs = await runDocsTruth(sandbox);
+    const defectMetrics = calculateDefectMetrics({
+      knownDefects: known?.defects ?? [],
+      findingsBefore: gapBefore.findings,
+      findingsAfter: gapAfter.findings,
+      docsBeforeMissing: docsBefore.missing,
+      docsAfterMissing: docs.missing,
+    });
     const inWindow = known
       ? scoreBefore.total >= known.expected_min_score_before &&
         scoreBefore.total <= known.expected_max_score_before
@@ -121,8 +128,11 @@ export async function benchmark(flags: Record<string, string | boolean>): Promis
       grade_before: scoreBefore.grade,
       grade_after: scoreAfter.grade,
       defects_known: knownIds.size,
-      defects_detected: detectedKnown.length,
-      defects_fixed: Math.max(0, detectedKnown.length - stillPresent.length),
+      defects_detected: defectMetrics.defects_detected,
+      defects_fixed: defectMetrics.defects_fixed,
+      defects_remaining: defectMetrics.defects_remaining,
+      bug_discovery_rate: defectMetrics.discovery_rate,
+      bug_fix_rate: defectMetrics.fix_rate,
       verification_commands_run: verificationRuns,
       qa_cases_created: qaCases,
       regressions_introduced: 0,
@@ -139,7 +149,7 @@ export async function benchmark(flags: Record<string, string | boolean>): Promis
 
   // Table
   process.stdout.write('\n');
-  const headers = ['case', 'before→after', 'grade_after', 'def(det/fix/total)', 'iters', 'qa', 'docs_miss', 'std'];
+  const headers = ['case', 'before→after', 'grade_after', 'def(det/fix/rem/total)', 'fix%', 'iters', 'qa', 'docs_miss', 'std'];
   process.stdout.write(headers.join('  ') + '\n');
   process.stdout.write('-'.repeat(110) + '\n');
   for (const r of rows) {
@@ -148,7 +158,8 @@ export async function benchmark(flags: Record<string, string | boolean>): Promis
         r.case.padEnd(34),
         `${r.score_before}→${r.score_after}`.padEnd(12),
         r.grade_after.padEnd(28),
-        `${r.defects_detected}/${r.defects_fixed}/${r.defects_known}`.padEnd(18),
+        `${r.defects_detected}/${r.defects_fixed}/${r.defects_remaining}/${r.defects_known}`.padEnd(22),
+        `${Math.round(r.bug_fix_rate * 100)}%`.padEnd(5),
         String(r.iterations_run).padEnd(5),
         String(r.qa_cases_created).padEnd(3),
         String(r.docs_truth_missing).padEnd(9),

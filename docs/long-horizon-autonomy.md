@@ -19,6 +19,7 @@ demo2project autonomy:run --project ./path --iterations 10 --provider rule-based
 demo2project autonomy:status --project ./path [--session <id>]
 demo2project autonomy:report --project ./path --session <id>
 demo2project long-run --project ./path --iterations 5
+demo2project long-run --project ./path --provider minimax-m27 --hours 10 --heartbeat-seconds 300 --output reports/long-run/session.json
 ```
 
 Each session writes `<project>/.demo2project/sessions/<id>.json`,
@@ -36,3 +37,15 @@ The controller stops when ANY of:
 7. architecture drift escalates to `high`
 
 The default policy (`config/autonomy-policy.json`) keeps these conservative.
+
+## Demo-to-product long run
+
+`long-run` is the productization entry point for extended demo hardening. It
+wraps `SupervisorAgent` directly and records score trend, gap trend, verification
+pass rate, docs truth, QA memory growth, cost records, and the final stop
+reason. It is intentionally stricter than a single `iterate` command:
+
+- failed verification is converted into a first-class repair task before normal work continues
+- active QA cases from preflight are injected into planner task acceptance criteria
+- score is not treated as sufficient evidence; run `analyze --evidence --verify` for the score gate
+- `--in-place` is explicit, otherwise the command works on a temp copy

@@ -21,9 +21,11 @@ export type ArchetypeId =
   | 'typescript-library'
   | 'react-app'
   | 'nextjs-app'
+  | 'vue-app'
   | 'python-cli'
   | 'python-package'
   | 'fastapi-api'
+  | 'flask-web-app'
   | 'monorepo'
   | 'docs-only-project'
   | 'agent-framework'
@@ -76,6 +78,16 @@ const PROBES: Record<ArchetypeId, Probe> = {
     out.push({ hit: 'next' in deps, weight: -5, signal: 'NOT next (penalty)' });
     return out;
   },
+  'vue-app': (c) => {
+    const out: { hit: boolean; weight: number; signal: string }[] = [];
+    const deps = { ...(c.pkg.dependencies ?? {}), ...(c.pkg.devDependencies ?? {}) };
+    out.push({ hit: 'vue' in deps, weight: 4, signal: 'dep:vue' });
+    out.push({ hit: '@vitejs/plugin-vue' in deps || 'vite' in deps, weight: 2, signal: 'dep:vue bundler' });
+    out.push({ hit: [...c.files].some((f) => /(^|\/)App\.vue$/.test(f)), weight: 3, signal: 'App.vue' });
+    out.push({ hit: c.has('index.html') || [...c.files].some((f) => f.endsWith('/index.html')), weight: 1, signal: 'index.html' });
+    out.push({ hit: !('react' in deps) && !('next' in deps), weight: 1, signal: 'not react/next' });
+    return out;
+  },
   'node-cli': (c) => {
     const out: { hit: boolean; weight: number; signal: string }[] = [];
     out.push({ hit: !!c.pkg.bin, weight: 4, signal: 'package.json bin' });
@@ -123,6 +135,16 @@ const PROBES: Record<ArchetypeId, Probe> = {
     out.push({ hit: /\buvicorn\b/.test(c.pyproject), weight: 1, signal: 'uvicorn' });
     return out;
   },
+  'flask-web-app': (c) => {
+    const out: { hit: boolean; weight: number; signal: string }[] = [];
+    out.push({ hit: c.snapshot.detected_frameworks.includes('flask'), weight: 4, signal: 'flask framework detection' });
+    out.push({ hit: [...c.files].some((f) => /(^|\/)(app|wsgi)\.py$/.test(f)), weight: 2, signal: 'app.py or wsgi.py' });
+    out.push({ hit: c.has('templates/') || [...c.files].some((f) => f.startsWith('templates/')), weight: 1, signal: 'templates/' });
+    out.push({ hit: [...c.files].some((f) => /(^|\/)tests?\/test_(app|routes|api)\.py$/.test(f)), weight: 2, signal: 'route/API tests' });
+    out.push({ hit: c.snapshot.start_commands.some((cmd) => /\b(flask|gunicorn|python3?\s+app\.py)\b/.test(cmd)), weight: 2, signal: 'flask start command' });
+    out.push({ hit: !c.snapshot.detected_frameworks.includes('fastapi'), weight: 1, signal: 'not fastapi' });
+    return out;
+  },
   monorepo: (c) => {
     const out: { hit: boolean; weight: number; signal: string }[] = [];
     out.push({ hit: c.has('pnpm-workspace.yaml'), weight: 3, signal: 'pnpm-workspace.yaml' });
@@ -158,9 +180,11 @@ const RECOMMENDED_STANDARD: Record<ArchetypeId, string> = {
   'typescript-library': 'typescript-library',
   'react-app': 'react-app',
   'nextjs-app': 'nextjs-app',
+  'vue-app': 'vue-app',
   'python-cli': 'python-cli',
   'python-package': 'python-package',
   'fastapi-api': 'fastapi-api',
+  'flask-web-app': 'flask-web-app',
   monorepo: 'monorepo',
   'docs-only-project': 'docs-only-project',
   'agent-framework': 'agent-framework',
@@ -172,9 +196,11 @@ const APPLICABLE_PATTERNS: Record<ArchetypeId, string[]> = {
   'typescript-library': ['verification_failure/typecheck_failed', 'verification_failure/build_failed', 'test_quality_failure/empty_test'],
   'react-app': ['verification_failure/build_failed', 'project_structure_failure/missing_env_example'],
   'nextjs-app': ['verification_failure/build_failed', 'safety_failure/secret_leak'],
+  'vue-app': ['verification_failure/build_failed', 'project_structure_failure/missing_env_example'],
   'python-cli': ['docs_failure/readme_command_missing', 'project_structure_failure/missing_entrypoint'],
   'python-package': ['verification_failure/test_failed', 'project_structure_failure/missing_config'],
   'fastapi-api': ['safety_failure/insecure_default', 'safety_failure/secret_leak', 'verification_failure/smoke_test_failed'],
+  'flask-web-app': ['safety_failure/insecure_default', 'safety_failure/secret_leak', 'verification_failure/smoke_test_failed'],
   monorepo: ['project_structure_failure/unclear_module_boundary', 'verification_failure/build_failed'],
   'docs-only-project': ['docs_failure/docs_claim_without_evidence', 'docs_failure/outdated_docs'],
   'agent-framework': ['process_failure/missing_validation_after_code_change', 'process_failure/supervisor_accepted_unverified_result', 'executor_failure/output_unparseable'],
@@ -186,9 +212,11 @@ const RISK_PROFILE: Record<ArchetypeId, 'low' | 'medium' | 'high'> = {
   'typescript-library': 'low',
   'react-app': 'medium',
   'nextjs-app': 'medium',
+  'vue-app': 'medium',
   'python-cli': 'low',
   'python-package': 'low',
   'fastapi-api': 'high',
+  'flask-web-app': 'high',
   monorepo: 'medium',
   'docs-only-project': 'low',
   'agent-framework': 'high',

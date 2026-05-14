@@ -198,7 +198,7 @@ export async function corpusEvaluate(opts: {
   return out;
 }
 
-export async function corpusReport(opts: { systemRoot: string }): Promise<{
+export async function corpusReport(opts: { systemRoot: string; outputDir?: string }): Promise<{
   reportPath: string;
   total: number;
   entries: ProjectCorpusEntry[];
@@ -207,7 +207,7 @@ export async function corpusReport(opts: { systemRoot: string }): Promise<{
   const entries = await readIndex(opts.systemRoot);
   const archetypes: Record<string, number> = {};
   for (const e of entries) archetypes[e.archetype ?? 'unknown'] = (archetypes[e.archetype ?? 'unknown'] ?? 0) + 1;
-  const dir = path.join(opts.systemRoot, 'reports', 'workspace');
+  const dir = opts.outputDir ?? path.join(opts.systemRoot, 'reports', 'workspace');
   await ensureDir(dir);
   const md: string[] = [];
   md.push('# Corpus report');

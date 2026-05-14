@@ -6,6 +6,7 @@ import { LocalCommandProvider } from '../../agents/providers/LocalCommandProvide
 import { RuleBasedExecutor } from '../../agents/providers/RuleBasedExecutor.js';
 import { NaiveBaselineProvider } from '../../agents/providers/NaiveBaselineProvider.js';
 import { ClaudeCodeProvider } from '../../agents/providers/ClaudeCodeProvider.js';
+import { MiniMaxProvider } from '../../agents/providers/MiniMaxProvider.js';
 import { CodexProvider, DevinProvider, OpenHandsProvider, AiderProvider } from '../../agents/providers/FutureProvider.js';
 import type { AgentProvider } from '../../agents/providers/AgentProvider.js';
 import type { AgentTask } from '../../core/types.js';
@@ -41,6 +42,12 @@ export async function providerTest(flags: Record<string, string | boolean>): Pro
     case 'claude-cli': {
       const timeoutMs = typeof flags['timeout-ms'] === 'string' ? Number(flags['timeout-ms']) : 90_000;
       provider = new ClaudeCodeProvider({ enabled: !dryRun, timeoutMs });
+      break;
+    }
+    case 'minimax':
+    case 'minimax-m27': {
+      const timeoutMs = typeof flags['timeout-ms'] === 'string' ? Number(flags['timeout-ms']) : 90_000;
+      provider = new MiniMaxProvider({ enabled: !dryRun, timeoutMs });
       break;
     }
     case 'codex': provider = CodexProvider(); break;

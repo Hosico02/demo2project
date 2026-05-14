@@ -35,7 +35,33 @@ export interface DocsTruthReport {
   results: DocClaimResult[];
 }
 
-const RUN_CMD = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([a-z][a-z0-9_:-]+)/gi;
+const RUN_CMD = /\b(npm|pnpm|yarn|bun)\s+(?:(run)\s+)?([a-z][a-z0-9_:-]+)/gi;
+const PACKAGE_MANAGER_COMMANDS = new Set([
+  'add',
+  'audit',
+  'ci',
+  'config',
+  'dedupe',
+  'dlx',
+  'exec',
+  'explain',
+  'i',
+  'init',
+  'install',
+  'link',
+  'list',
+  'login',
+  'logout',
+  'outdated',
+  'pack',
+  'publish',
+  'remove',
+  'run-script',
+  'uninstall',
+  'update',
+  'upgrade',
+  'why',
+]);
 const PY_TEST_CLAIM = /\b(?:pytest|python\s+-m\s+pytest|uv\s+run\s+pytest)\b/i;
 const NPM_TEST = /\b(?:npm|pnpm|yarn|bun)\s+test\b/i;
 const DOCKER_CLAIM = /\bdocker\s+(?:build|run|compose)\b/i;
@@ -52,7 +78,10 @@ export async function runDocsTruth(projectPath: string): Promise<DocsTruthReport
     const blocks = extractCodeBlocks(txt);
     const haystack = [txt, ...blocks].join('\n');
     for (const m of haystack.matchAll(RUN_CMD)) {
-      claims.push({ source_file: f, raw: m[0], kind: 'script', detail: m[1] ?? '' });
+      const usedRun = m[2] === 'run';
+      const detail = m[3] ?? '';
+      if (!usedRun && PACKAGE_MANAGER_COMMANDS.has(detail)) continue;
+      claims.push({ source_file: f, raw: m[0], kind: 'script', detail });
     }
     if (PY_TEST_CLAIM.test(haystack)) claims.push({ source_file: f, raw: 'pytest', kind: 'python', detail: 'pytest' });
     if (NPM_TEST.test(haystack)) claims.push({ source_file: f, raw: 'npm test', kind: 'script', detail: 'test' });

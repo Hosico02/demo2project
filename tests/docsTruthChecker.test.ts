@@ -35,6 +35,16 @@ describe('DocsTruthChecker', () => {
     expect(claim?.evidence).toBe('present');
   });
 
+  it('does not treat package-manager install commands as scripts', async () => {
+    const dir = await mkProject({
+      'README.md': '# X\n\n```bash\npnpm install\npnpm build\n```\n',
+      'package.json': JSON.stringify({ name: 'x', scripts: { build: 'echo ok' } }),
+    });
+    const r = await runDocsTruth(dir);
+    expect(r.results.some((x) => x.kind === 'script' && x.detail === 'install')).toBe(false);
+    expect(r.results.find((x) => x.kind === 'script' && x.detail === 'build')?.evidence).toBe('present');
+  });
+
   it('flags docker claim without Dockerfile', async () => {
     const dir = await mkProject({
       'README.md': '## Deploy\n\nRun `docker build .` then `docker run myimg`.',

@@ -25,6 +25,8 @@ documents every command grouped by intent.
 | `self-iterate[-sandbox]` | Read-only/worktree-bounded self-iteration |
 | `benchmark` | Score every project under benchmarks/ + examples/ |
 | `eval [--all|--case <n>]` | A/B comparison |
+| `compare-executors --case <n> --providers <list>` | Provider comparison on benchmark fixtures |
+| `long-run --project <path> [--hours <n>] [--provider <p>]` | Extended demo-to-product loop with trends and stop reason |
 
 ## QA
 
@@ -77,6 +79,10 @@ documents every command grouped by intent.
 ## Autonomy (Phase 6)
 
 `autonomy:policy / autonomy:set-level / autonomy:explain / autonomy:run / autonomy:status / autonomy:report / trend:show / drift:check / regression:bisect / rollback:stable / self:diagnose / self:hypotheses / self:experiment / planner:calibrate / executor:reliability / replay:create / replay:run / scenario:list / scenario:run / governance:log / handoff:create`
+
+`long-run` accepts `--iterations`, `--hours`, `--max-seconds`,
+`--target-score`, `--max-no-progress-rounds`, `--heartbeat-seconds`,
+`--output`, `--in-place`, and `--provider rule-based|mock|minimax-m27`.
 
 ## Learning (Phase 5)
 

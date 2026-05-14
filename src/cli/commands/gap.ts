@@ -5,10 +5,17 @@ export async function gap(flags: Record<string, string | boolean>): Promise<numb
   const project = requireProject(flags);
   if (!project) return 2;
   const agent = new AnalyzerAgent();
-  const { gap } = await agent.fullAnalyze(project);
+  const evidence = flags.evidence === true || flags.evidence === 'true';
+  const runCommands = flags.verify === true || flags.verify === 'true';
+  const { gap } = evidence
+    ? await agent.fullAnalyzeWithEvidence(project, { runCommands, timeoutMs: 60_000 })
+    : await agent.fullAnalyze(project);
   process.stdout.write(JSON.stringify(gap, null, 2) + '\n');
+  const maturity = gap.product_maturity
+    ? `; product_maturity ${gap.product_maturity.level} (${gap.product_maturity.score}/100, ${gap.product_maturity.domain})`
+    : '';
   process.stdout.write(
-    `\n>> ${gap.findings.length} finding(s), ${gap.blockers.length} blocker(s); grade ${gap.score.grade} (${gap.score.total}/100)\n`,
+    `\n>> ${gap.findings.length} finding(s), ${gap.blockers.length} blocker(s); grade ${gap.score.grade} (${gap.score.total}/100)${maturity}\n`,
   );
   return 0;
 }

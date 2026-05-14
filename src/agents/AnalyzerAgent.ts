@@ -6,9 +6,10 @@ import type {
 } from '../core/types.js';
 import { takeSnapshot } from '../core/projectSnapshot.js';
 import { scoreProject } from '../core/projectScorer.js';
+import { scoreProjectWithEvidence, type EvidenceWeightedOptions } from '../core/evidenceWeightedScorer.js';
 import { analyzeGaps } from '../core/gapAnalyzer.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
-import { selectStandardForSnapshot } from '../standards/standardsLibrary.js';
+import { selectStandardForProject, selectStandardForSnapshot } from '../standards/standardsLibrary.js';
 
 export class AnalyzerAgent {
   /** If `undefined`, the analyzer auto-selects per snapshot. */
@@ -17,7 +18,7 @@ export class AnalyzerAgent {
   private async resolve(snapshot: ProjectSnapshot): Promise<{ standard: ProjectStandard; name: string }> {
     if (this.standard) return { standard: this.standard, name: 'caller-supplied' };
     try {
-      return await selectStandardForSnapshot(snapshot);
+      return await selectStandardForProject(snapshot.project_path, snapshot);
     } catch {
       return { standard: DEFAULT_PROJECT_STANDARD, name: 'fallback-default' };
     }
@@ -30,6 +31,11 @@ export class AnalyzerAgent {
   async score(snapshot: ProjectSnapshot): Promise<ProjectScore> {
     const { standard } = await this.resolve(snapshot);
     return scoreProject(snapshot, standard);
+  }
+
+  async scoreWithEvidence(snapshot: ProjectSnapshot, opts: EvidenceWeightedOptions = {}): Promise<ProjectScore> {
+    const { standard } = await this.resolve(snapshot);
+    return scoreProjectWithEvidence(snapshot, standard, opts);
   }
 
   async gap(snapshot: ProjectSnapshot, score: ProjectScore): Promise<GapReport> {
@@ -47,6 +53,19 @@ export class AnalyzerAgent {
     const { standard, name: standardName } = await this.resolve(snap);
     const score = await scoreProject(snap, standard);
     const gap = await analyzeGaps(snap, score, standard);
-    return { snapshot: snap, score, gap, standard_name: standardName };
+    return { snapshot: snap, score: gap.score, gap, standard_name: standardName };
+  }
+
+  async fullAnalyzeWithEvidence(projectPath: string, opts: EvidenceWeightedOptions = {}): Promise<{
+    snapshot: ProjectSnapshot;
+    score: ProjectScore;
+    gap: GapReport;
+    standard_name: string;
+  }> {
+    const snap = await this.snapshot(projectPath);
+    const { standard, name: standardName } = await this.resolve(snap);
+    const score = await scoreProjectWithEvidence(snap, standard, opts);
+    const gap = await analyzeGaps(snap, score, standard);
+    return { snapshot: snap, score: gap.score, gap, standard_name: standardName };
   }
 }

@@ -11,6 +11,7 @@ import { scoreProjectWithEvidence } from '../core/evidenceWeightedScorer.js';
 import { readJsonSafe } from '../utils/json.js';
 import { selectStandardForSnapshot } from '../standards/standardsLibrary.js';
 import { takeSnapshot } from '../core/projectSnapshot.js';
+import { calculateDefectMetrics, type KnownDefect } from './defectMetrics.js';
 
 /**
  * EvaluationRunner — A/B comparison: naive baseline vs Demo2Project loop.
@@ -56,6 +57,13 @@ export interface EvalComparison {
   human_interventions_required: number;
   qa_cases_created: number;
   repeated_bug_prevented_count: number;
+  known_defects_total: number;
+  known_defects_detected_before: number;
+  baseline_known_defects_fixed: number;
+  demo2project_known_defects_fixed: number;
+  demo2project_known_defects_remaining: number;
+  demo2project_bug_discovery_rate: number;
+  demo2project_bug_fix_rate: number;
   delta_score: number;
   recommendation: 'demo2project_wins' | 'baseline_equivalent' | 'inconclusive';
 }
@@ -68,6 +76,8 @@ export interface EvalRunOptions {
   runVerificationCommands?: boolean;
   /** Include benchmarks/hidden/ cases — used for generalization scoring. */
   includeHidden?: boolean;
+  /** Disable system-level QA regression spec updates for hermetic tests. */
+  updateRegressionSpec?: boolean;
 }
 
 async function copyDir(src: string, dst: string): Promise<void> {
@@ -102,6 +112,7 @@ async function listCases(systemRoot: string, caseName?: string, includeHidden = 
 interface KnownDefects {
   expected_project_type?: string;
   expected_target_score_after?: number;
+  defects?: KnownDefect[];
 }
 
 async function scoreWithStandard(projectPath: string, runVerificationCommands: boolean) {
@@ -121,11 +132,15 @@ export async function runEvaluation(opts: EvalRunOptions): Promise<EvalCompariso
   for (const project of cases) {
     const caseLabel = path.basename(project);
     const known = await readJsonSafe<KnownDefects>(path.join(project, 'known_defects.json'));
+    const knownDefects = known?.defects ?? [];
+    const analyzer = new AnalyzerAgent();
 
     // A — baseline
     const sandboxA = path.join(tmpRoot, `A_${caseLabel}`);
     await copyDir(project, sandboxA);
     const beforeA = await scoreWithStandard(sandboxA, false);
+    const gapBeforeA = await analyzer.fullAnalyze(sandboxA);
+    const docsBeforeA = await runDocsTruth(sandboxA);
     const baseline = await runBaseline({
       projectPath: sandboxA,
       goal: 'baseline:make-it-project-ready',
@@ -133,24 +148,54 @@ export async function runEvaluation(opts: EvalRunOptions): Promise<EvalCompariso
       standard: beforeA.score.score_evidence ? undefined : undefined, // analyzer auto-selects
     });
     const afterA = await scoreWithStandard(sandboxA, opts.runVerificationCommands ?? false);
+    const gapAfterA = await analyzer.fullAnalyze(sandboxA);
     const docsA = await runDocsTruth(sandboxA);
+    const baselineDefects = calculateDefectMetrics({
+      knownDefects,
+      findingsBefore: gapBeforeA.gap.findings,
+      findingsAfter: gapAfterA.gap.findings,
+      docsBeforeMissing: docsBeforeA.missing,
+      docsAfterMissing: docsA.missing,
+    });
 
     // B — demo2project
     const sandboxB = path.join(tmpRoot, `B_${caseLabel}`);
     await copyDir(project, sandboxB);
     const beforeB = await scoreWithStandard(sandboxB, false);
+    const gapBeforeB = await analyzer.fullAnalyze(sandboxB);
+    const docsBeforeB = await runDocsTruth(sandboxB);
     const sup = new SupervisorAgent();
     const summaries = await sup.iterate({
       projectPath: sandboxB,
       goal: 'demo2project:project-ready',
       provider: new RuleBasedExecutor(),
       maxIterations: opts.maxIterations ?? 3,
-      systemRoot: opts.systemRoot,
+      systemRoot: opts.updateRegressionSpec === false ? undefined : opts.systemRoot,
     });
     const afterB = await scoreWithStandard(sandboxB, opts.runVerificationCommands ?? false);
+    const gapAfterB = await analyzer.fullAnalyze(sandboxB);
     const docsB = await runDocsTruth(sandboxB);
+    const demoDefects = calculateDefectMetrics({
+      knownDefects,
+      findingsBefore: gapBeforeB.gap.findings,
+      findingsAfter: gapAfterB.gap.findings,
+      docsBeforeMissing: docsBeforeB.missing,
+      docsAfterMissing: docsB.missing,
+    });
 
     const qaCases = summaries.reduce((a, s) => a + s.qa_cases_created_or_updated.length, 0);
+    const demo2projectUnverifiedChanges = summaries.reduce(
+      (a, s) => a + s.executor_results.filter(
+        (r) => r.changed_files.length > 0 && r.verification_evidence.length === 0 && !r.unable_to_verify_reason,
+      ).length, 0,
+    );
+    const recommendation =
+      afterB.score.total > afterA.score.total + 3 ||
+      (demoDefects.defects_fixed > baselineDefects.defects_fixed && demo2projectUnverifiedChanges === 0)
+        ? 'demo2project_wins'
+        : Math.abs(afterB.score.total - afterA.score.total) <= 3
+          ? 'baseline_equivalent'
+          : 'inconclusive';
 
     rows.push({
       case: caseLabel,
@@ -169,11 +214,7 @@ export async function runEvaluation(opts: EvalRunOptions): Promise<EvalCompariso
       demo2project_score_before: beforeB.score.total,
       demo2project_score_after: afterB.score.total,
       demo2project_grade_after: afterB.score.grade,
-      demo2project_unverified_changes: summaries.reduce(
-        (a, s) => a + s.executor_results.filter(
-          (r) => r.changed_files.length > 0 && r.verification_evidence.length === 0 && !r.unable_to_verify_reason,
-        ).length, 0,
-      ),
+      demo2project_unverified_changes: demo2projectUnverifiedChanges,
       demo2project_docs_false_claims: docsB.missing,
       demo2project_tests_runnable: afterB.snap.test_commands.length > 0,
       demo2project_regressions: 0,
@@ -182,11 +223,15 @@ export async function runEvaluation(opts: EvalRunOptions): Promise<EvalCompariso
       human_interventions_required: 0,
       qa_cases_created: qaCases,
       repeated_bug_prevented_count: 0,
+      known_defects_total: demoDefects.defects_known,
+      known_defects_detected_before: demoDefects.defects_detected,
+      baseline_known_defects_fixed: baselineDefects.defects_fixed,
+      demo2project_known_defects_fixed: demoDefects.defects_fixed,
+      demo2project_known_defects_remaining: demoDefects.defects_remaining,
+      demo2project_bug_discovery_rate: demoDefects.discovery_rate,
+      demo2project_bug_fix_rate: demoDefects.fix_rate,
       delta_score: afterB.score.total - afterA.score.total,
-      recommendation:
-        afterB.score.total > afterA.score.total + 3 ? 'demo2project_wins' :
-        Math.abs(afterB.score.total - afterA.score.total) <= 3 ? 'baseline_equivalent' :
-        'inconclusive',
+      recommendation,
     });
   }
 

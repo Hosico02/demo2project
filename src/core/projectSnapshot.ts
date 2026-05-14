@@ -32,23 +32,39 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
   const pkg = await readJsonSafe<PackageJson>(path.join(abs, 'package.json'));
   const pyproject = await readTextSafe(path.join(abs, 'pyproject.toml'));
   const requirements = await readTextSafe(path.join(abs, 'requirements.txt'));
+  const pyFiles = files.filter((f) => f.endsWith('.py'));
+  const pythonBlob = `${pyproject ?? ''}\n${requirements ?? ''}`;
+  const pkgDeps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+  const packageLooksLikeJsApp =
+    Object.keys(pkgDeps).length > 0 ||
+    typeof pkg?.main === 'string' ||
+    pkg?.bin !== undefined;
+  const strongPythonSignal =
+    !!pyproject ||
+    !!requirements ||
+    hasAny(['app.py', 'main.py', 'cli.py']) ||
+    pyFiles.length >= 2;
 
   let language = 'unknown';
   const frameworks: string[] = [];
 
-  if (pkg) {
+  if (strongPythonSignal && (!pkg || !packageLooksLikeJsApp)) {
+    language = 'python';
+    for (const f of ['fastapi', 'flask', 'django', 'pytest', 'starlette', 'pydantic']) {
+      if (new RegExp(`\\b${f}\\b`, 'i').test(pythonBlob)) frameworks.push(f);
+    }
+  } else if (pkg) {
     language = 'typescript-or-javascript';
-    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
-    if ('typescript' in deps || has('tsconfig.json')) language = 'typescript';
+    const deps = pkgDeps;
+    if ('typescript' in deps || (has('tsconfig.json') && !strongPythonSignal)) language = 'typescript';
     else if (Object.keys(pkg).length > 0) language = 'javascript';
     for (const f of ['react', 'next', 'vue', 'svelte', 'express', 'fastify', 'nestjs', 'vitest', 'jest', 'mocha']) {
       if (f in deps) frameworks.push(f);
     }
-  } else if (pyproject || requirements || files.some((f) => f.endsWith('.py'))) {
+  } else if (pyproject || requirements || pyFiles.length > 0) {
     language = 'python';
-    const blob = `${pyproject ?? ''}\n${requirements ?? ''}`;
     for (const f of ['fastapi', 'flask', 'django', 'pytest', 'starlette', 'pydantic']) {
-      if (new RegExp(`\\b${f}\\b`, 'i').test(blob)) frameworks.push(f);
+      if (new RegExp(`\\b${f}\\b`, 'i').test(pythonBlob)) frameworks.push(f);
     }
   } else if (files.some((f) => f.endsWith('.go'))) {
     language = 'go';
@@ -57,12 +73,16 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
   }
 
   let pm: ProjectSnapshot['package_manager'] = 'unknown';
-  if (has('pnpm-lock.yaml')) pm = 'pnpm';
+  if (language === 'python' && has('poetry.lock')) pm = 'poetry';
+  else if (language === 'python' && /\[tool\.poetry\]/.test(pyproject ?? '')) pm = 'poetry';
+  else if (language === 'python' && requirements) pm = 'pip';
+  else if (language === 'python' && pyproject) pm = 'pip';
+  else if (has('pnpm-lock.yaml')) pm = 'pnpm';
   else if (has('yarn.lock')) pm = 'yarn';
   else if (has('bun.lockb') || has('bun.lock')) pm = 'bun';
   else if (has('package-lock.json')) pm = 'npm';
-  else if (pkg) pm = 'npm';
-  else if (pyproject) pm = 'poetry';
+  else if (pkg && language !== 'python') pm = 'npm';
+  else if (pyproject) pm = /\[tool\.poetry\]/.test(pyproject) || has('poetry.lock') ? 'poetry' : 'pip';
   else if (requirements) pm = 'pip';
 
   const scripts = pkg?.scripts ?? {};
@@ -70,7 +90,7 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
   const buildCommands: string[] = [];
   const startCommands: string[] = [];
 
-  if (pkg) {
+  if (pkg && language !== 'python') {
     const runner = pm === 'yarn' ? 'yarn' : pm === 'pnpm' ? 'pnpm' : pm === 'bun' ? 'bun run' : 'npm run';
     if (scripts.test) testCommands.push(`${runner} test`);
     if (scripts.build) buildCommands.push(`${runner} build`);
@@ -80,9 +100,14 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
   }
   if (language === 'python') {
     if (files.some((f) => /(^|\/)tests?\//.test(f) || f.startsWith('test_') || f.endsWith('_test.py'))) {
-      testCommands.push('pytest -q');
+      testCommands.push('python3 -m pytest -q');
     }
-    if (files.includes('main.py')) startCommands.push('python main.py');
+    const compileTargets = pyFiles.filter((f) => !/(^|\/)tests?\//.test(f)).slice(0, 12);
+    if (compileTargets.length > 0) {
+      buildCommands.push(pythonSyntaxCheckCommand(compileTargets));
+    }
+    if (files.includes('app.py')) startCommands.push('python3 app.py');
+    else if (files.includes('main.py')) startCommands.push('python3 main.py');
   }
 
   // Important + missing files (heuristic)
@@ -92,6 +117,9 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
     'tsconfig.json',
     'pyproject.toml',
     'requirements.txt',
+    'app.py',
+    'main.py',
+    'cli.py',
     'Dockerfile',
     '.github/workflows',
     'src',
@@ -125,10 +153,16 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
         has('yarn.lock') ||
         has('package-lock.json') ||
         has('bun.lockb') ||
-        has('poetry.lock'),
+        has('poetry.lock') ||
+        has('constraints.txt'),
     },
     timestamp: nowIso(),
   };
+}
+
+function pythonSyntaxCheckCommand(files: string[]): string {
+  const list = files.map((f) => JSON.stringify(f)).join(', ');
+  return `python3 -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in [${list}] if pathlib.Path(p).exists()]'`;
 }
 
 /** Lookup helper used by other modules. */

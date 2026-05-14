@@ -141,6 +141,19 @@ export interface ScoreEvidenceEntry {
   notes?: string;
 }
 
+export interface ScoreGateFailure {
+  gate: 'test' | 'build' | 'verification' | 'gap' | 'start' | 'docs' | 'product_maturity';
+  cap: number;
+  reason: string;
+  evidence_command?: string;
+}
+
+export interface ScoreGateResult {
+  status: 'passed' | 'failed';
+  cap: number;
+  failures: ScoreGateFailure[];
+}
+
 export interface ProjectScore {
   total: number; // 0-100
   grade: ProjectGrade;
@@ -152,6 +165,33 @@ export interface ProjectScore {
    * command. Dimensions without verification get partial-credit only.
    */
   score_evidence?: ScoreEvidenceEntry[];
+  score_gate?: ScoreGateResult;
+}
+
+export type ProductMaturityLevel =
+  | 'demo'
+  | 'engineering_baseline'
+  | 'domain_product_candidate'
+  | 'market_parity_candidate'
+  | 'market_ready';
+
+export interface ProductCapabilityAssessment {
+  id: string;
+  label: string;
+  met: boolean;
+  evidence: string[];
+  required_for_market_parity: boolean;
+}
+
+export interface ProductMaturityAssessment {
+  domain: string;
+  target_market: string;
+  score: number;
+  level: ProductMaturityLevel;
+  summary: string;
+  capabilities: ProductCapabilityAssessment[];
+  missing_capabilities: string[];
+  references: string[];
 }
 
 export interface GapFinding {
@@ -164,12 +204,23 @@ export interface GapFinding {
   related_files: string[];
 }
 
+export interface AgentMisjudgmentAudit {
+  finding_id: string;
+  finding_category: string;
+  action: 'suppress_finding' | 'require_more_evidence';
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  related_files: string[];
+}
+
 export interface GapReport {
   project_snapshot: ProjectSnapshot;
   score: ProjectScore;
   findings: GapFinding[];
   blockers: GapFinding[];
   recommendations: string[];
+  product_maturity?: ProductMaturityAssessment;
+  agent_misjudgments?: AgentMisjudgmentAudit[];
 }
 
 export interface IterationPlan {
@@ -177,6 +228,7 @@ export interface IterationPlan {
   goal: string;
   project_path: string;
   tasks: AgentTask[];
+  qa_focus_cases?: string[];
   risk_level: Severity;
   expected_score_delta: number;
   stop_conditions: string[];

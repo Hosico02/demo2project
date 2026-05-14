@@ -30,7 +30,7 @@ export async function appendText(p: string, content: string): Promise<void> {
 
 /**
  * List file paths under `dir` recursively, relative to `dir`.
- * Skips node_modules, .git, dist, .demo2project, common heavy dirs.
+ * Skips node_modules, .git, dist, .demo2project, common heavy/tool dirs.
  */
 export async function listFiles(dir: string, maxFiles = 2000): Promise<string[]> {
   const skip = new Set([
@@ -38,9 +38,12 @@ export async function listFiles(dir: string, maxFiles = 2000): Promise<string[]>
     '.git',
     'dist',
     '.demo2project',
+    '.zp',
     'coverage',
     '.next',
     '.cache',
+    '.pycache',
+    '.pytest_cache',
     '.venv',
     'venv',
     '__pycache__',
@@ -55,7 +58,7 @@ export async function listFiles(dir: string, maxFiles = 2000): Promise<string[]>
       return;
     }
     for (const e of entries) {
-      if (skip.has(e.name) || e.name.startsWith('.git')) continue;
+      if (skip.has(e.name)) continue;
       const childRel = rel ? path.join(rel, e.name) : e.name;
       const childAbs = path.join(current, e.name);
       if (e.isDirectory()) {

@@ -4,6 +4,7 @@ import { MockAgentProvider, type MockMode } from '../../agents/providers/MockAge
 import { LocalCommandProvider } from '../../agents/providers/LocalCommandProvider.js';
 import { RuleBasedExecutor } from '../../agents/providers/RuleBasedExecutor.js';
 import { ClaudeCodeProvider, ClaudeCliProvider } from '../../agents/providers/ClaudeCodeProvider.js';
+import { MiniMaxProvider } from '../../agents/providers/MiniMaxProvider.js';
 import { CodexProvider, DevinProvider, OpenHandsProvider, AiderProvider } from '../../agents/providers/FutureProvider.js';
 import type { AgentProvider } from '../../agents/providers/AgentProvider.js';
 import { flagNumber, flagString, requireProject } from './_shared.js';
@@ -32,6 +33,10 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
       break;
     case 'claude-cli':
       provider = new ClaudeCliProvider({ enabled: true });
+      break;
+    case 'minimax':
+    case 'minimax-m27':
+      provider = new MiniMaxProvider({ enabled: true });
       break;
     case 'codex':
       provider = CodexProvider();

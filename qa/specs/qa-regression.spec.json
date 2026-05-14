@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated_at": "1970-01-01T00:00:00.000Z",
+  "updated_at": "2026-05-14T06:00:10.687Z",
   "assertions": [
     "missing_validation_after_code_change",
     "supervisor_accepts_unverified_result",
@@ -10,5 +10,195 @@
     "unsafe_command_detected",
     "regression_spec_not_updated_after_failure"
   ],
-  "cases": []
+  "cases": [
+    {
+      "id": "qa_mp3hb7ii8rg5g0",
+      "title": "Command \"pytest -q\" failed 2 times in one iteration without root-cause analysis",
+      "category": "repeated_failure",
+      "severity": "high",
+      "frequency": 28,
+      "status": "active",
+      "project_type": [
+        "generic"
+      ],
+      "bug_source": {
+        "iteration_id": "iter_mp3hb7goevbjyu",
+        "agent": "verifier",
+        "source": "iteration_event",
+        "related_files": []
+      },
+      "trigger_condition": "The same command failed repeatedly within a single iteration with no documented root cause.",
+      "human_flow": [
+        {
+          "step": 1,
+          "actor": "user",
+          "action": "requests a code-modifying change"
+        },
+        {
+          "step": 2,
+          "actor": "supervisor",
+          "action": "plans and assigns task"
+        },
+        {
+          "step": 3,
+          "actor": "executor",
+          "action": "applies the change"
+        },
+        {
+          "step": 4,
+          "actor": "executor",
+          "action": "must run at least one verification command"
+        },
+        {
+          "step": 5,
+          "actor": "supervisor",
+          "action": "checks evidence before marking task complete"
+        }
+      ],
+      "expected_behavior": "After two consecutive failures of the same command, the executor must summarize root cause before continuing.",
+      "actual_failure": "command \"pytest -q\" failed 2 times",
+      "regression_assertions": [
+        "if changed_files is non-empty then commands_run must be non-empty",
+        "if commands_run is empty then unable_to_verify_reason must be set",
+        "supervisor must not accept completed without verification_evidence"
+      ],
+      "reproduction_steps": [
+        "configure executor to return changed_files without commands_run",
+        "run a single iteration",
+        "inspect QA regression runner output"
+      ],
+      "suggested_test_type": "workflow_regression",
+      "fingerprint": "repeated_failure_without_root_cause:pytest -q",
+      "created_at": "2026-05-13T03:07:23.466Z",
+      "updated_at": "2026-05-13T03:07:23.466Z",
+      "last_seen_at": "2026-05-13T03:07:23.466Z",
+      "related_files": []
+    },
+    {
+      "id": "qa_mp3hfjdwev0t1a",
+      "title": "Command \"npm run\" failed 2 times in one iteration without root-cause analysis",
+      "category": "repeated_failure",
+      "severity": "high",
+      "frequency": 75,
+      "status": "active",
+      "project_type": [
+        "generic"
+      ],
+      "bug_source": {
+        "iteration_id": "iter_mp4xwgq7yrimbz",
+        "agent": "verifier",
+        "source": "iteration_event",
+        "related_files": []
+      },
+      "trigger_condition": "The same command failed repeatedly within a single iteration with no documented root cause.",
+      "human_flow": [
+        {
+          "step": 1,
+          "actor": "user",
+          "action": "requests a code-modifying change"
+        },
+        {
+          "step": 2,
+          "actor": "supervisor",
+          "action": "plans and assigns task"
+        },
+        {
+          "step": 3,
+          "actor": "executor",
+          "action": "applies the change"
+        },
+        {
+          "step": 4,
+          "actor": "executor",
+          "action": "must run at least one verification command"
+        },
+        {
+          "step": 5,
+          "actor": "supervisor",
+          "action": "checks evidence before marking task complete"
+        }
+      ],
+      "expected_behavior": "After two consecutive failures of the same command, the executor must summarize root cause before continuing.",
+      "actual_failure": "command \"npm run\" failed 2 times",
+      "regression_assertions": [
+        "if changed_files is non-empty then commands_run must be non-empty",
+        "if commands_run is empty then unable_to_verify_reason must be set",
+        "supervisor must not accept completed without verification_evidence"
+      ],
+      "reproduction_steps": [
+        "configure executor to return changed_files without commands_run",
+        "run a single iteration",
+        "inspect QA regression runner output"
+      ],
+      "suggested_test_type": "workflow_regression",
+      "fingerprint": "repeated_failure_without_root_cause:npm run",
+      "created_at": "2026-05-13T03:10:45.476Z",
+      "updated_at": "2026-05-14T03:39:37.416Z",
+      "last_seen_at": "2026-05-14T03:39:37.416Z",
+      "related_files": []
+    },
+    {
+      "id": "qa_mp3ouxh8udy3uc",
+      "title": "Command \"python3 -m\" failed 2 times in one iteration without root-cause analysis",
+      "category": "repeated_failure",
+      "severity": "high",
+      "frequency": 56,
+      "status": "active",
+      "project_type": [
+        "generic"
+      ],
+      "bug_source": {
+        "iteration_id": "iter_mp52nb8jx5crjt",
+        "agent": "verifier",
+        "source": "iteration_event",
+        "related_files": []
+      },
+      "trigger_condition": "The same command failed repeatedly within a single iteration with no documented root cause.",
+      "human_flow": [
+        {
+          "step": 1,
+          "actor": "user",
+          "action": "requests a code-modifying change"
+        },
+        {
+          "step": 2,
+          "actor": "supervisor",
+          "action": "plans and assigns task"
+        },
+        {
+          "step": 3,
+          "actor": "executor",
+          "action": "applies the change"
+        },
+        {
+          "step": 4,
+          "actor": "executor",
+          "action": "must run at least one verification command"
+        },
+        {
+          "step": 5,
+          "actor": "supervisor",
+          "action": "checks evidence before marking task complete"
+        }
+      ],
+      "expected_behavior": "After two consecutive failures of the same command, the executor must summarize root cause before continuing.",
+      "actual_failure": "command \"python3 -m\" failed 2 times",
+      "regression_assertions": [
+        "if changed_files is non-empty then commands_run must be non-empty",
+        "if commands_run is empty then unable_to_verify_reason must be set",
+        "supervisor must not accept completed without verification_evidence"
+      ],
+      "reproduction_steps": [
+        "configure executor to return changed_files without commands_run",
+        "run a single iteration",
+        "inspect QA regression runner output"
+      ],
+      "suggested_test_type": "workflow_regression",
+      "fingerprint": "repeated_failure_without_root_cause:python3 -m",
+      "created_at": "2026-05-13T06:38:40.892Z",
+      "updated_at": "2026-05-14T05:52:27.635Z",
+      "last_seen_at": "2026-05-14T05:52:27.635Z",
+      "related_files": []
+    }
+  ]
 }

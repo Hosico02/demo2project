@@ -64,4 +64,35 @@ describe('Anti-gaming detectors', () => {
     const f = await runAntiGaming(snap);
     expect(f.some((x) => x.detector === 'forbidden_pattern_in_source')).toBe(true);
   });
+
+  it('does not treat pytest flags as missing test targets', async () => {
+    const dir = await mk({
+      'package.json': JSON.stringify({ name: 'x', scripts: { test: 'python3 -m pytest -q' } }),
+      'requirements.txt': 'pytest>=8.0\n',
+      'tests/test_smoke.py': 'def test_smoke():\n    assert True\n',
+    });
+    const snap = await takeSnapshot(dir);
+    const f = await runAntiGaming(snap);
+    expect(f.some((x) => x.detector === 'test_target_missing')).toBe(false);
+  });
+
+  it('does not treat quoted glob test targets as missing when matching tests exist', async () => {
+    const dir = await mk({
+      'package.json': JSON.stringify({ name: 'x', scripts: { test: 'node --test "tests/**/*.test.mjs"' } }),
+      'tests/smoke.test.mjs': 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("smoke", () => assert.equal(1 + 1, 2));\n',
+    });
+    const snap = await takeSnapshot(dir);
+    const f = await runAntiGaming(snap);
+    expect(f.some((x) => x.detector === 'test_target_missing')).toBe(false);
+  });
+
+  it('still flags quoted glob test targets when no matching tests exist', async () => {
+    const dir = await mk({
+      'package.json': JSON.stringify({ name: 'x', scripts: { test: 'node --test "tests/**/*.test.mjs"' } }),
+      'src/index.js': 'export const ok = true;\n',
+    });
+    const snap = await takeSnapshot(dir);
+    const f = await runAntiGaming(snap);
+    expect(f.some((x) => x.detector === 'test_target_missing')).toBe(true);
+  });
 });

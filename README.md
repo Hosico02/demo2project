@@ -9,6 +9,7 @@ pnpm install && pnpm build
 pnpm demo2project doctor                         # check your environment
 pnpm demo2project init --interactive             # 30-second setup wizard
 pnpm demo2project quickstart --use-example       # 5-minute analyze/gap/trust loop
+pnpm run site:check                              # validate the MatrixOmnix web entry
 ```
 
 Then on your real project:
@@ -22,6 +23,12 @@ pnpm demo2project report:project --project /path/to/your/repo
 ```
 
 Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
+
+Web entry: [`site/index.html`](site/index.html). The MatrixOmnix interface
+ships as a static product surface with About, Service and Contact pages. The
+Service page accepts demo archives (`zip`, `7z`, `rar`, `tar`, `tar.gz`,
+`tgz`) and documents the productization contract: every completed artifact is
+returned as a normalized `zip`.
 
 ---
 
@@ -70,11 +77,39 @@ Demo2Project enforces a discipline:
 5. **Verify**: every code change must produce verification evidence **or** an
    explicit `unable_to_verify_reason`. No exceptions — the supervisor downgrades
    completion to failure when this is violated.
-6. **Review** the result against the project standard.
-7. **Learn**: the QA Agent extracts QA Cases (fingerprinted, deduped, persisted)
+6. **Repair failed verification first**: a failed command becomes a blocker
+   repair task before normal productization continues.
+7. **Review** the result against the project standard.
+8. **Learn**: the QA Agent extracts QA Cases (fingerprinted, deduped, persisted)
    from the iteration events and updates `qa/specs/qa-regression.spec.json`.
-8. **Regress**: the QA runner replays workflow assertions over the iteration
+9. **Regress**: the QA runner replays workflow assertions over the iteration
    history of any project to ensure old failure modes do not return.
+
+It now also runs a **misjudgment audit** before planning: high-risk findings
+such as CLI/API/UI/LLM/social-deduction classifications are cross-checked
+against concrete project evidence. If a finding lacks enough evidence, the
+Analyzer records an agent-discovered misjudgment and suppresses that task
+before Executor can mutate the wrong project surface.
+
+## Harness Coverage
+
+Demo2Project treats a "product" as a set of verified contracts, not a prettier
+demo. Current harness families include:
+
+- **Single-file intake/runtime** — captures `demo.py`, `app.js`, `index.html`
+  and similar raw entries before expansion.
+- **CLI executable contract** — verifies installed/declared CLI entries expose
+  a stable `--help` contract.
+- **API contract/runtime** — detects Flask/FastAPI/Express/Fastify/Hono-style
+  surfaces and requires a route contract harness.
+- **Config contract** — extracts environment-variable usage and checks
+  `.env.example` coverage.
+- **Data/migration contract** — detects ORM/schema/migration surfaces and
+  requires explicit schema evidence.
+- **Worker contract** — detects queues, scheduled jobs and background workers
+  before productizing async behavior.
+- **UI product verification** — checks browser harnesses, render smoke,
+  accessibility, responsive layout and common interaction risks.
 
 ---
 
@@ -159,6 +194,16 @@ pnpm test
 CLI usage (after build):
 
 ```bash
+pnpm demo2project analyze --project ./werewolf-demo --evidence --verify
+pnpm demo2project gap --project ./werewolf-demo --evidence --verify
+pnpm demo2project long-run --project ./werewolf-demo --provider minimax-m27 --hours 10 --in-place --output reports/long-run/werewolf.json
+```
+
+For MiniMax M2.7, set `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`. The
+default MiniMax base URL is `https://api.minimaxi.com/v1`; override it with
+`MINIMAX_BASE_URL` when needed.
+
+```bash
 # Inspect a project
 pnpm demo2project analyze --project examples/bad-demo
 pnpm demo2project gap --project examples/bad-demo
@@ -190,8 +235,12 @@ to start fresh.
 
 - `MockAgentProvider` — deterministic; used by tests and the MVP.
 - `LocalCommandProvider` — runs whitelisted local commands (e.g. test, build).
-- `ClaudeCodeProvider` — placeholder. Set `DEMO2PROJECT_CLAUDE_CODE=1` to
-  arm; the actual subprocess + JSON protocol is documented in
+- `RuleBasedExecutor` — deterministic executor that writes a small supported
+  set of projectization fixes and records verification evidence. It now covers
+  README/env/gitignore/CI/smoke tests plus single-file intake, CLI, API,
+  config, data, worker and UI harness scaffolds.
+- `ClaudeCodeProvider` — real `claude -p` subprocess driver. Set
+  `DEMO2PROJECT_CLAUDE_CODE=1` to arm; the JSON protocol is documented in
   `docs/architecture.md`.
 
 The system **must work end-to-end without any external API** — that is the
@@ -199,13 +248,17 @@ MVP guarantee. Real model-driven providers attach in Phase 2.
 
 ---
 
-## Current MVP limits
+## Current limits
 
-- Executor is mock-only in MVP; it does not yet write real code.
-  Verification still runs against the real filesystem.
+- Deterministic execution is intentionally conservative: `RuleBasedExecutor`
+  can establish productization harnesses and repair supported patterns, but
+  broad feature implementation still belongs to a model-backed provider.
 - Reviewer is rule-based, not diff-based.
 - Score weights are heuristic; tune via `config/project-standard.json`.
 - QA runner asserts over recorded *events*, not live re-runs of commands.
+- The static MatrixOmnix Service page validates upload intent and archive
+  format; production upload processing still needs a deployed API/service
+  boundary wired to the CLI long-run pipeline.
 
 ---
 

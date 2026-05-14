@@ -129,12 +129,10 @@ export async function runAntiGaming(snapshot: ProjectSnapshot): Promise<AntiGami
   // 4. Test runner cannot discover tests (heuristic: test script names a dir that has no test files)
   const testScript = (scripts.test ?? '').trim();
   if (testScript) {
-    const m = testScript.match(/\b(?:node\s+--test|vitest|jest|pytest)\s+([^\s|;&]+)/);
-    if (m) {
-      const target = m[1]!;
-      const looksLikeFile = await readTextSafe(path.join(root, target));
-      const hasUnderDir = files.some((f) => f.startsWith(target.replace(/\/$/, '') + '/'));
-      if (looksLikeFile === null && !hasUnderDir) {
+    const target = discoverExplicitTestTarget(testScript);
+    if (target) {
+      const exists = await explicitTestTargetExists(root, files, target);
+      if (!exists) {
         findings.push({
           detector: 'test_target_missing',
           severity: 'high',
@@ -200,4 +198,53 @@ export async function runAntiGaming(snapshot: ProjectSnapshot): Promise<AntiGami
   }
 
   return findings;
+}
+
+function discoverExplicitTestTarget(script: string): string | null {
+  const match = script.match(/\b(node\s+--test|vitest|jest|pytest)\b([\s\S]*)/);
+  if (!match) return null;
+  const runner = match[1]!;
+  const rest = match[2] ?? '';
+  const tokens = rest.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  let skipNext = false;
+  for (const token of tokens) {
+    const normalized = normalizeScriptToken(token);
+    if (/^[|;&]/.test(normalized)) break;
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (runner === 'vitest' && normalized === 'run') continue;
+    if (/^--[^=]+=.*/.test(normalized)) continue;
+    if (/^--/.test(normalized)) {
+      if (/^(--config|--project|--root|--dir|--testMatch|--testRegex|--test-reporter)$/.test(normalized)) {
+        skipNext = true;
+      }
+      continue;
+    }
+    if (/^-[A-Za-z]/.test(normalized)) {
+      if (/^(--config|--project|--root|--dir|--testMatch|--testRegex|--runInBand)$/.test(normalized)) {
+        skipNext = true;
+      }
+      continue;
+    }
+    return normalized;
+  }
+  return null;
+}
+
+async function explicitTestTargetExists(root: string, files: string[], target: string): Promise<boolean> {
+  const normalized = target.replace(/\\/g, '/').replace(/^\.\/+/, '');
+  if (normalized.includes('*')) {
+    const fixedPrefix = normalized.split(/[*[{?]/)[0]?.replace(/\/?$/, '/') ?? '';
+    const testLike = /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs|py)$|(^|\/)tests?\//;
+    return files.some((f) => f.startsWith(fixedPrefix) && testLike.test(f));
+  }
+  const looksLikeFile = await readTextSafe(path.join(root, normalized));
+  const hasUnderDir = files.some((f) => f.startsWith(normalized.replace(/\/$/, '') + '/'));
+  return looksLikeFile !== null || hasUnderDir;
+}
+
+function normalizeScriptToken(token: string): string {
+  return token.replace(/^['"]|['"]$/g, '');
 }

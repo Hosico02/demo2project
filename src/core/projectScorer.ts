@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import type {
   ProjectSnapshot,
   ProjectScore,
@@ -9,13 +10,17 @@ import type {
 import { listFiles, readTextSafe } from '../utils/fs.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
 
-function grade(total: number): ProjectGrade {
+export function gradeProjectScore(total: number): ProjectGrade {
   if (total <= 30) return 'raw_demo';
   if (total <= 50) return 'working_demo';
   if (total <= 70) return 'structured_prototype';
   if (total <= 85) return 'project_ready_candidate';
   return 'production_ready_baseline';
 }
+
+const DEFAULT_SCORE_MAX: ScoreBreakdown = Object.fromEntries(
+  DEFAULT_PROJECT_STANDARD.scoring_rules.map((r) => [r.dimension, r.weight]),
+) as unknown as ScoreBreakdown;
 
 /**
  * Score a snapshot against a ProjectStandard. Pure-ish — only re-reads a few
@@ -35,12 +40,12 @@ export async function scoreProject(
   // --- structure ---
   const structureSignals = ['src', 'tests', 'docs', 'scripts'];
   const hits = structureSignals.filter(has).length;
-  const structureScore = Math.min(10, hits * 3) + (has('.gitignore') ? 1 : 0);
+  const structureScore = Math.min(10, hits * 3 + (has('.gitignore') ? 1 : 0));
 
   // --- tests ---
   let testScore = 0;
   if (snapshot.test_commands.length > 0) testScore += 6;
-  if (files.some((f) => /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f))) testScore += 5;
+  if (files.some((f) => /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f) || /(^|\/)test_[^/]+\.py$/.test(f) || /_test\.py$/.test(f))) testScore += 5;
   if (files.some((f) => /(^|\/)tests?\//.test(f))) testScore += 4;
   if (files.some((f) => /regression/.test(f))) testScore += 3;
   testScore = Math.min(18, testScore);
@@ -49,6 +54,7 @@ export async function scoreProject(
   let buildScore = 0;
   if (snapshot.build_commands.length > 0) buildScore += 8;
   if (has('tsconfig.json')) buildScore += 2;
+  if (snapshot.detected_language === 'python' && has('pyproject.toml')) buildScore += 2;
   if (has('Dockerfile')) buildScore += 2;
   buildScore = Math.min(12, buildScore);
 
@@ -65,7 +71,7 @@ export async function scoreProject(
   if (readme && readme.trim().length > 0) {
     docsScore += 5;
     if (readme.length > 400) docsScore += 2;
-    if (/## (Usage|Getting Started|Install)/i.test(readme)) docsScore += 2;
+    if (/##\s*(Usage|Getting Started|Install|Quick Start|快速开始|安装|使用|部署)/i.test(readme)) docsScore += 2;
   }
   if (has('docs')) docsScore += 1;
   docsScore = Math.min(10, docsScore);
@@ -121,6 +127,9 @@ export async function scoreProject(
 
   // --- agent process ---
   let agentProcessScore = 0;
+  if (has('.github/workflows') && snapshot.test_commands.length > 0) agentProcessScore += 3;
+  if (has('.github/workflows') && snapshot.build_commands.length > 0) agentProcessScore += 2;
+  agentProcessScore += await scoreDemo2ProjectProcessState(root);
   if (has('qa')) agentProcessScore += 4;
   if (has('qa/specs') || files.includes('qa/specs/qa-regression.spec.json')) agentProcessScore += 4;
   if (has('docs/iteration-process.md') || files.includes('docs/iteration-process.md')) agentProcessScore += 3;
@@ -139,17 +148,55 @@ export async function scoreProject(
     agent_process_score: agentProcessScore,
   };
 
-  const total = Math.min(
-    100,
-    Math.round(
-      Object.values(breakdown).reduce((a, b) => a + b, 0),
-    ),
-  );
+  const total = scoreTotalFromBreakdown(breakdown, standard);
 
   return {
     total,
-    grade: grade(total),
+    grade: gradeProjectScore(total),
     breakdown,
     notes,
   };
+}
+
+export function scoreTotalFromBreakdown(
+  breakdown: ScoreBreakdown,
+  standard: ProjectStandard = DEFAULT_PROJECT_STANDARD,
+): number {
+  const rules = standard.scoring_rules.length > 0
+    ? standard.scoring_rules
+    : DEFAULT_PROJECT_STANDARD.scoring_rules;
+  const total = rules.reduce((acc, rule) => {
+    const max = DEFAULT_SCORE_MAX[rule.dimension] || rule.weight || 1;
+    const earnedRatio = Math.max(0, Math.min(1, breakdown[rule.dimension] / max));
+    return acc + earnedRatio * rule.weight;
+  }, 0);
+  return Math.min(100, Math.round(total));
+}
+
+async function scoreDemo2ProjectProcessState(root: string): Promise<number> {
+  let score = 0;
+  if (await dirHasFiles(path.join(root, '.demo2project', 'iterations'), /\.json$/)) score += 4;
+  if (await dirHasFiles(path.join(root, '.demo2project', 'events'), /\.jsonl$/)) score += 3;
+  if (await dirHasFiles(path.join(root, '.demo2project', 'evidence'), /\.json$/)) score += 2;
+  const qaCaseCount = await jsonArrayLength(path.join(root, '.demo2project', 'qa-cases.json'));
+  if (qaCaseCount !== null) score += qaCaseCount > 0 ? 3 : 1;
+  return score;
+}
+
+async function dirHasFiles(dir: string, pattern: RegExp): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    return entries.some((entry) => entry.isFile() && pattern.test(entry.name));
+  } catch {
+    return false;
+  }
+}
+
+async function jsonArrayLength(file: string): Promise<number | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+    return Array.isArray(parsed) ? parsed.length : null;
+  } catch {
+    return null;
+  }
 }

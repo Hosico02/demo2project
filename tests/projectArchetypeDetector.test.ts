@@ -29,6 +29,38 @@ describe('ProjectArchetypeDetector', () => {
     const r = await detectArchetype(dir);
     expect(r.primary.id).toBe('nextjs-app');
   });
+  it('detects flask-web-app from Flask imports and app routes', async () => {
+    const dir = await mk({
+      'requirements.txt': 'flask>=3.0.0\npytest>=8.0.0\n',
+      'app.py': [
+        'from flask import Flask, jsonify',
+        'app = Flask(__name__)',
+        '@app.route("/healthz")',
+        'def healthz():',
+        '    return jsonify({"status": "ok"})',
+        '',
+      ].join('\n'),
+      'tests/test_app.py': 'def test_healthz():\n    assert True\n',
+    });
+    const r = await detectArchetype(dir);
+    expect(r.primary.id).toBe('flask-web-app');
+    expect(r.primary.recommended_standard).toBe('flask-web-app');
+  });
+  it('detects vue-app from Vue/Vite source shape', async () => {
+    const dir = await mk({
+      'package.json': JSON.stringify({
+        name: 'vue-ui',
+        dependencies: { vue: '^3.5.0' },
+        devDependencies: { vite: '^6.0.0', '@vitejs/plugin-vue': '^5.0.0' },
+      }),
+      'index.html': '<div id="app"></div><script type="module" src="/src/main.js"></script>',
+      'src/main.js': 'import { createApp } from "vue"; import App from "./App.vue"; createApp(App).mount("#app");',
+      'src/App.vue': '<template><main>Vue UI</main></template>',
+    });
+    const r = await detectArchetype(dir);
+    expect(r.primary.id).toBe('vue-app');
+    expect(r.primary.recommended_standard).toBe('vue-app');
+  });
   it('detects agent-framework on this repo', async () => {
     const r = await detectArchetype(repoRoot);
     expect(r.primary.id).toBe('agent-framework');

@@ -23,6 +23,7 @@ describe('Hidden benchmark', () => {
       caseName: 'bad-generalization-cli',
       maxIterations: 1,
       includeHidden: false,
+      updateRegressionSpec: false,
     });
     expect(rows.length).toBe(0);
   });
@@ -33,6 +34,7 @@ describe('Hidden benchmark', () => {
       caseName: 'bad-generalization-cli',
       maxIterations: 1,
       includeHidden: true,
+      updateRegressionSpec: false,
     });
     expect(rows.length).toBe(1);
   });

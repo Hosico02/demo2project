@@ -1,7 +1,14 @@
 node_modules/
+.pnpm-store/
 dist/
 .demo2project/
 *.log
 .DS_Store
 coverage/
 .tmp/
+reports/autonomy/
+reports/project-report/
+reports/security/
+reports/trust/
+reports/evaluation/evaluation-report-*.json
+reports/evaluation/evaluation-report-*.md

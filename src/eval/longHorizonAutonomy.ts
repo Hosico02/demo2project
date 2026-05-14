@@ -75,6 +75,8 @@ export interface AutonomyRunOptions {
   providerName?: 'rule-based' | 'mock' | 'claude-cli';
   systemRoot: string;
   goal?: string;
+  /** Disable system-level QA regression spec updates for hermetic tests. */
+  updateRegressionSpec?: boolean;
 }
 
 function pickProvider(name: string): AgentProvider {
@@ -180,7 +182,7 @@ export async function runAutonomySession(opts: AutonomyRunOptions): Promise<Long
       goal: opts.goal ?? 'long-horizon iteration',
       provider: pickProvider(providerName),
       maxIterations: 1,
-      systemRoot: opts.systemRoot,
+      systemRoot: opts.updateRegressionSpec === false ? undefined : opts.systemRoot,
     });
     const last = summaries[summaries.length - 1];
     if (!last) break;

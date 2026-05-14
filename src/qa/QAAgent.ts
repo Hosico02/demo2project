@@ -38,6 +38,7 @@ export class QAAgent {
     archetype?: string;
     applicable: number;
     skipped: number;
+    cases: QACase[];
   }> {
     let scoped = { global: [] as QACase[], workspace: [] as QACase[], repo: [] as QACase[] };
     if (opts.systemRoot) {
@@ -77,6 +78,7 @@ export class QAAgent {
       archetype: archetype.id,
       applicable: applicable.length,
       skipped: skipped.length,
+      cases: applicable,
     };
   }
 

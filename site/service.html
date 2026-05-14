@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Demo2Project Service</title>
+    <meta name="description" content="Use Demo2Project to upload a demo archive and receive a productized zip artifact.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body data-page="service">
+    <div class="cursor-capture" aria-hidden="true"></div>
+    <div class="cursor-core" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Demo2Project home">
+        <span>MatrixOmnix</span>
+        <strong>Demo2Project</strong>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="./index.html">Home</a>
+        <a href="./about.html">About</a>
+        <a aria-current="page" href="./service.html">Service</a>
+        <a href="./contact.html">Contact</a>
+      </nav>
+    </header>
+
+    <main class="content-page service-page">
+      <section class="page-heading" aria-labelledby="service-title">
+        <p class="section-kicker">Service</p>
+        <h1 id="service-title">Upload a demo archive. Get back a product zip.</h1>
+        <p>
+          The service accepts compressed demo projects, runs Demo2Project's multi-agent harness, then returns a normalized product package as a zip file.
+        </p>
+      </section>
+
+      <section class="service-grid" aria-label="Service usage">
+        <form class="upload-panel" data-upload-form data-return-format="zip">
+          <label for="demo-archive">Demo archive</label>
+          <input
+            id="demo-archive"
+            name="demo-archive"
+            type="file"
+            data-demo-upload
+            accept=".zip,.7z,.rar,.tar,.tar.gz,.tgz,application/zip,application/x-7z-compressed,application/x-rar-compressed,application/gzip"
+          >
+          <div class="upload-meta">
+            <span>Input: zip, 7z, rar, tar, tar.gz, tgz</span>
+            <span>Output: zip</span>
+          </div>
+          <button type="submit">Prepare Productization</button>
+          <p class="upload-status" data-upload-status role="status" aria-live="polite">No archive selected.</p>
+        </form>
+
+        <ol class="usage-steps">
+          <li>
+            <strong>1. Intake</strong>
+            <span>Archive type, entrypoints, dependencies and risk boundaries are detected before any agent edits files.</span>
+          </li>
+          <li>
+            <strong>2. Iterate</strong>
+            <span>Analyzer, Planner, Executor, Verifier, Reviewer and QA Memory run repeated demo-to-product loops.</span>
+          </li>
+          <li>
+            <strong>3. Return</strong>
+            <span>The completed artifact is packaged as a product zip with reports, docs, tests and verification evidence.</span>
+          </li>
+        </ol>
+      </section>
+
+      <section class="command-strip" aria-label="CLI equivalent">
+        <code>demo2project long-run --project ./demo --provider minimax-m27 --hours 10 --in-place</code>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Service output format is always zip.</span>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

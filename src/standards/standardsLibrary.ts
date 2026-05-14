@@ -65,6 +65,21 @@ export async function loadStandard(name: string): Promise<ProjectStandard | null
   return { ...base, ...override } as ProjectStandard;
 }
 
+export async function selectStandardForProject(
+  projectPath: string,
+  snapshot: ProjectSnapshot,
+): Promise<{ standard: ProjectStandard; name: string }> {
+  const selected = await selectStandardForSnapshot(snapshot);
+  const override = await readJsonSafe<Partial<ProjectStandard>>(
+    path.join(projectPath, 'config', 'project-standard.json'),
+  );
+  if (!override) return selected;
+  return {
+    standard: mergeStandard(selected.standard, override),
+    name: `${selected.name}+project-config`,
+  };
+}
+
 export async function listStandards(): Promise<string[]> {
   return listAllRoots();
 }
@@ -90,10 +105,12 @@ export async function selectStandardForSnapshot(
   }
   if (fws.includes('next')) ordered.push('nextjs-app');
   if (fws.includes('react')) ordered.push('react-app');
+  if (fws.includes('vue')) ordered.push('vue-app');
   if (fws.includes('fastapi') || files.some((f) => f.startsWith('app/main'))) ordered.push('fastapi-api');
+  if (fws.includes('flask')) ordered.push('flask-web-app');
   if (lang === 'python') {
     // python-cli vs python-package: prefer cli if entry-shape detected
-    if (files.some((f) => /(^|\/)main\.py$/.test(f) || /(^|\/)cli\.py$/.test(f))) ordered.push('python-cli');
+    if (files.some((f) => /(^|\/)(app|main|cli)\.py$/.test(f))) ordered.push('python-cli');
     ordered.push('python-package');
   }
   if (lang === 'typescript' && (files.includes('tsconfig.json') || fws.includes('vitest') || fws.includes('jest'))) {
@@ -119,4 +136,15 @@ export async function selectStandardForSnapshot(
 function stripName(raw: RawStandard): ProjectStandard {
   const { name: _n, ...rest } = raw;
   return rest as ProjectStandard;
+}
+
+function mergeStandard(base: ProjectStandard, override: Partial<ProjectStandard>): ProjectStandard {
+  return {
+    ...base,
+    ...override,
+    verification_policy: {
+      ...base.verification_policy,
+      ...(override.verification_policy ?? {}),
+    },
+  };
 }

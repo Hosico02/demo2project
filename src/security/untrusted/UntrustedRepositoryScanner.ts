@@ -19,7 +19,8 @@ export interface RepositoryScanResult {
 }
 
 const SUSPICIOUS_PATH_PATTERNS = [
-  /^\.env(\..*)?$/i,
+  /^\.env$/i,
+  /^\.env\.(?!example$|sample$|template$).+$/i,
   /^id_rsa$/,
   /^id_ed25519$/,
   /credentials\.json$/i,

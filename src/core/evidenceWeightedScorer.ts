@@ -7,11 +7,12 @@ import type {
   ScoreBreakdown,
   ProjectGrade,
 } from './types.js';
-import { scoreProject } from './projectScorer.js';
+import { scoreProject, scoreTotalFromBreakdown } from './projectScorer.js';
 import { runCommand } from './commandRunner.js';
 import { runDocsTruth } from './docsTruth.js';
 import { runAntiGaming, type AntiGamingFinding } from './antiGamingScorer.js';
 import { fileExists } from '../utils/fs.js';
+import { applyScoreGate, evaluateScoreGate } from './scoreGate.js';
 
 /**
  * Evidence-weighted scoring — Phase 3 anti-gaming.
@@ -194,7 +195,12 @@ export async function scoreProjectWithEvidence(
     confidence: 'medium',
   });
 
-  const total = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
+  const rawTotal = scoreTotalFromBreakdown(breakdown, standard);
+  const score_gate = evaluateScoreGate({ evidence });
+  const total = applyScoreGate(rawTotal, score_gate);
+  if (score_gate.status === 'failed') {
+    notes.push(`score gate failed: ${score_gate.failures.map((f) => `${f.reason} (cap ${f.cap})`).join('; ')}`);
+  }
   // confidence-adjusted: an extra haircut proportional to high-severity findings
   const blockerWeight = antiGaming.filter((f) => f.severity === 'blocker').length * 4;
   const confidence_adjusted_score = Math.max(0, total - blockerWeight);
@@ -204,6 +210,7 @@ export async function scoreProjectWithEvidence(
     breakdown,
     notes,
     score_evidence: evidence,
+    score_gate,
     anti_gaming_findings: antiGaming,
     confidence_adjusted_score,
   };
