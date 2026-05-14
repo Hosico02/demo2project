@@ -1248,4 +1248,52 @@ describe('RuleBasedExecutor', () => {
     expect(script).toContain('touchstart');
     expect(script).toContain('keydown');
   });
+
+  it('aligns unimplemented hosted service claims with beta local usage', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-ui-service-claim-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'service-claim-demo',
+      scripts: { build: 'node -e "console.log(\'build ok\')"' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'App.vue'), [
+      '<template>',
+      '  <main>',
+      '    <h1>Upload a demo. Receive a product zip.</h1>',
+      '    <form class="upload-panel" data-upload-form data-return-format="zip">',
+      '      <input type="file" data-demo-upload accept=".zip,.7z,.rar,.tar,.tar.gz,.tgz" />',
+      '      <p>MatrixOmnix will process the archive and return a productized zip artifact.</p>',
+      '    </form>',
+      '  </main>',
+      '</template>',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'ui-service-claim',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Align UI service claims with implemented backend',
+        description: 'UI promises hosted upload and artifact return without a backend',
+        acceptance_criteria: ['hosted upload claims are removed'],
+        expected_changed_files: ['src'],
+        verification_commands: ['node -e "console.log(\'verified\')"'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('src/App.vue');
+    const app = await fs.readFile(path.join(dir, 'src', 'App.vue'), 'utf8');
+    expect(app).toContain('How to use MatrixOmnix beta.');
+    expect(app).toContain('data-service-guide');
+    expect(app).toContain('not a hosted file-processing service yet');
+    expect(app).not.toContain('data-upload-form');
+    expect(app).not.toContain('data-demo-upload');
+    expect(app).not.toContain('type="file"');
+    expect(app).not.toContain('Receive a product zip');
+  });
 });

@@ -148,6 +148,9 @@ function chooseHandler(task: AgentTask, targets: string[]): Handler | null {
   if (/add ui runtime render smoke verification/i.test(task.title)) {
     return addUiProductVerificationHarness;
   }
+  if (/align ui service claims/i.test(task.title)) {
+    return alignUiServiceClaimsWithImplementedBackend;
+  }
   if (/harden ui interaction/i.test(task.title)) {
     return hardenUiInteractionAccessibilityAndPolish;
   }
@@ -1320,6 +1323,29 @@ const hardenUiInteractionAccessibilityAndPolish: Handler = async (projectPath) =
   };
 };
 
+const alignUiServiceClaimsWithImplementedBackend: Handler = async (projectPath) => {
+  const files = (await listFiles(projectPath)).filter((file) =>
+    isPatchableUiFile(file) || /^(README\.md|docs\/.*\.md)$/.test(file),
+  );
+  const changed = new Set<string>();
+
+  for (const rel of files) {
+    const abs = path.join(projectPath, rel);
+    const original = await readTextSafe(abs);
+    if (original === null) continue;
+    const next = patchUnimplementedHostedServiceClaims(original);
+    if (next !== original) {
+      await writeText(abs, next);
+      changed.add(rel);
+    }
+  }
+
+  return {
+    summary: changed.size > 0 ? 'aligned UI service claims with currently implemented backend capabilities' : 'UI service claims already match implemented capabilities',
+    changed_files: Array.from(changed),
+  };
+};
+
 // --- helpers -------------------------------------------------------------
 
 function detectSingleFileDemoEntry(files: string[]): string | null {
@@ -1835,6 +1861,34 @@ function patchPlaceholderUiCopy(text: string): string {
     .replace(/A common student from Tengzhou, China\./g, 'Independent builder from Tengzhou, China, focused on AI-assisted products and web experiences.')
     .replace(/\bThis is just a BETA\b/g, 'Focused product capability')
     .replace(/\bThis is a beta version\b/gi, 'This is the current product preview');
+}
+
+function patchUnimplementedHostedServiceClaims(text: string): string {
+  let next = text
+    .replace(/Upload a demo\.\s*Receive a product zip\./g, 'How to use MatrixOmnix beta.')
+    .replace(/Upload a demo/gi, 'Use MatrixOmnix beta locally')
+    .replace(/Receive a product zip/gi, 'Review verified productization evidence')
+    .replace(/MatrixOmnix accepts compressed demo projects, runs the productization harness, then returns one normalized zip artifact for broad compatibility\./g, 'MatrixOmnix is not a hosted file-processing service yet. Use the beta locally from the CLI, review every verification report, and keep productization changes under source control.')
+    .replace(/MatrixOmnix will process the archive and return a productized zip artifact\./g, 'MatrixOmnix beta runs locally from the CLI; review verification reports before trusting productization output.')
+    .replace(/(?:Input|Output):\s*(?:zip|7z|rar|tar|tar\.gz|tgz)(?:,\s*(?:zip|7z|rar|tar|tar\.gz|tgz))*/gi, 'Beta workflow: local CLI plus verification reports')
+    .replace(/\b(?:productized\s+zip|product\s+zip|zip\s+artifact|product\s+artifact)\b/gi, 'verified productization evidence')
+    .replace(/\breturned?\s+as\s+a\s+normalized\s+zip\b/gi, 'reviewed through local verification reports');
+
+  next = next.replace(/<form\b[^>]*(?:data-upload-form|data-return-format)[^>]*>[\s\S]*?<\/form>/gi, betaServiceGuideMarkup);
+  next = next.replace(/<input\b[^>]*type=["']file["'][^>]*>/gi, '<p>Hosted file intake is deferred; use the local CLI workflow for this beta.</p>');
+  next = next.replace(/\sdata-(?:upload-form|demo-upload|return-format)(?:=(["'])[^"']*\1)?/gi, '');
+  next = next.replace(/\saccept=(["'])[^"']*\.(?:zip|7z|rar|tar)[^"']*\1/gi, '');
+  return next;
+}
+
+function betaServiceGuideMarkup(): string {
+  return [
+    '<section class="usage-card" data-service-guide>',
+    '  <h2>Beta workflow</h2>',
+    '  <p>MatrixOmnix is not a hosted file-processing service yet. Use the beta locally from the CLI and review every verification report.</p>',
+    '  <code>pnpm matrixomnix analyze --project ./demo</code>',
+    '</section>',
+  ].join('\n');
 }
 
 function patchVuePointerTracking(text: string): string {

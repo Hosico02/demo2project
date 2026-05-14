@@ -689,4 +689,44 @@ describe('iterationPlanner', () => {
     expect(tasks[0]?.verification_commands).toEqual(['npm run build']);
     expect(tasks[0]?.acceptance_criteria.join('\n')).toContain('keyboard and touch');
   });
+
+  it('plans a dedicated task for unimplemented hosted service claims', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/ui-demo',
+        detected_language: 'javascript',
+        detected_frameworks: ['vue'],
+        package_manager: 'npm',
+        test_commands: ['npm test'],
+        build_commands: ['npm run build'],
+        start_commands: ['npm run dev'],
+        important_files: ['src/App.vue'],
+        missing_files: [],
+        dependency_summary: { runtime: 2, dev: 2, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 76, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-service-claim',
+          category: 'ui_unimplemented_hosted_service_claim',
+          severity: 'high',
+          message: 'hosted service claim',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['src/App.vue'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'align product claims');
+    const task = plan.tasks[0];
+
+    expect(task?.title).toBe('Align UI service claims with implemented backend');
+    expect(task?.verification_commands).toEqual(['npm run build']);
+    expect(task?.acceptance_criteria.join('\n')).toContain('hosted upload');
+  });
 });

@@ -601,7 +601,7 @@ export async function analyzeGaps(
     }
   }
   if (isUiBearingProject(snapshot, files, pkg)) {
-    findings.push(...await assessUiImplementationRisks(snapshot.project_path, files, snapshot, pkg));
+    findings.push(...await assessUiImplementationRisks(snapshot.project_path, files, snapshot, pkg, projectSurfaceText));
   }
   if (isSocialDeductionGame(gameText, readme ?? '')) {
     const testFiles = files.filter((f) => /(^|\/)tests?\/.*\.py$/.test(f));
@@ -888,6 +888,7 @@ export function auditAgentMisjudgments(input: MisjudgmentAuditInput): AgentMisju
     if (
       (f.category === 'missing_ui_product_verification' ||
         f.category === 'below_web_ui_product_maturity' ||
+        f.category === 'ui_unimplemented_hosted_service_claim' ||
         f.category.startsWith('ui_')) &&
       !isUiBearingProject(input.snapshot, input.files, input.pkg)
     ) {
@@ -1201,6 +1202,7 @@ async function assessUiImplementationRisks(
   files: string[],
   snapshot: ProjectSnapshot,
   pkg?: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } | null,
+  projectSurfaceText = '',
 ): Promise<GapFinding[]> {
   const uiFiles = files.filter(isUiImplementationFile).slice(0, 180);
   const loaded = (await Promise.all(
@@ -1293,6 +1295,21 @@ async function assessUiImplementationRisks(
     );
   }
 
+  const hostedServiceClaimFiles = loaded.filter((f) => hasUnimplementedHostedServiceClaim(f.text));
+  if (
+    hostedServiceClaimFiles.length > 0 &&
+    !hasHostedFileProcessingImplementationEvidence(files, pkg, projectSurfaceText)
+  ) {
+    add(
+      'ui_unimplemented_hosted_service_claim',
+      'high',
+      'UI promises hosted file processing without backend implementation evidence',
+      'A product surface should not tell users they can upload files, process work or receive generated artifacts unless the repository contains the API, worker and storage boundary that makes that promise true.',
+      'Either remove or explicitly mark the hosted service as unavailable in beta, or add verified API routes, storage handling, job processing and artifact retrieval tests.',
+      hostedServiceClaimFiles.map((f) => f.rel),
+    );
+  }
+
   const navFiles = loaded.filter((f) => hasNavWithoutAccessibleName(f.text));
   if (navFiles.length > 0) {
     add(
@@ -1330,7 +1347,6 @@ async function assessUiImplementationRisks(
   }
 
   void snapshot;
-  void pkg;
   return findings;
 }
 
@@ -1381,6 +1397,65 @@ function hasNavWithoutAccessibleName(text: string): boolean {
 
 function hasWeakUiProductCopy(text: string): boolean {
   return /this is (just )?a beta|beta version|lorem ipsum|placeholder copy|todo copy|coming soon|under construction|work in progress|stay tuned|welcome to (my|our) (website|site)|this is my (website|portfolio)|just another (website|portfolio|app)|a common student/i.test(text);
+}
+
+function hasUnimplementedHostedServiceClaim(text: string): boolean {
+  if (/not\s+(?:a\s+)?hosted|not\s+active|not\s+available|not\s+.*service\s+yet|beta\s+locally|use\s+the\s+beta\s+locally|intentionally\s+not\s+(?:active|exposed)/i.test(text)) {
+    return false;
+  }
+  const fileInputClaim = /type=["']file["']|data-upload-form|data-demo-upload|data-return-format|accept=["'][^"']*\.(?:zip|7z|rar|tar)/i.test(text);
+  const uploadClaim = /\bupload(?:ing)?\b.{0,80}\b(?:demo|file|archive|project|zip|7z|rar|tar)\b|\b(?:demo|file|archive|project)\b.{0,80}\bupload(?:ing)?\b/i.test(text);
+  const processingClaim = /\b(?:process|convert|producti[sz]e|optimi[sz]e|transform|queue|run)\b.{0,80}\b(?:demo|file|archive|project|artifact|zip)\b/i.test(text);
+  const returnClaim = /\b(?:receive|return|download|deliver|generate)\b.{0,100}\b(?:product\s+zip|productized\s+zip|artifact|zip\s+artifact|generated\s+project|product\s+artifact)\b/i.test(text);
+  const strongArtifactClaim = /\b(?:product\s+zip|productized\s+zip|product\s+artifact|zip\s+artifact)\b/i.test(text);
+  return (fileInputClaim && (uploadClaim || processingClaim || returnClaim || strongArtifactClaim)) ||
+    (uploadClaim && (processingClaim || returnClaim || strongArtifactClaim)) ||
+    /Upload a demo\.\s*Receive a product zip/i.test(text);
+}
+
+function hasHostedFileProcessingImplementationEvidence(
+  files: string[],
+  pkg?: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } | null,
+  projectSurfaceText = '',
+): boolean {
+  const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+  const serviceDeps = [
+    'express',
+    'fastify',
+    'koa',
+    'hono',
+    '@nestjs/core',
+    'next',
+    'nuxt',
+    'nitro',
+    '@supabase/supabase-js',
+    'multer',
+    'busboy',
+    'formidable',
+    'uploadthing',
+    'aws-sdk',
+    '@aws-sdk/client-s3',
+    'bullmq',
+    'bull',
+    'bee-queue',
+    'celery',
+    'rq',
+    'flask',
+    'fastapi',
+    'django',
+  ];
+  if (serviceDeps.some((dep) => dep in deps)) return true;
+  if (files.some((f) =>
+    /^api\/.+\.(ts|tsx|js|mjs|cjs|py)$/.test(f) ||
+    /^pages\/api\//.test(f) ||
+    /^app\/api\/.+\/route\.(ts|js)$/.test(f) ||
+    /^(server|backend|routes|workers?|jobs|tasks)\//.test(f) ||
+    /(^|\/)(server|app|api|worker|queue|storage)\.(ts|js|mjs|cjs|py)$/.test(f) ||
+    /^supabase\/migrations\/.+\.sql$/.test(f)
+  )) {
+    return true;
+  }
+  return /@app\.(?:route|post)\(|FastAPI\s*\(|APIRouter\s*\(|express\s*\(|fastify\s*\(|new\s+Hono\s*\(|router\.(?:post|put)|multer|busboy|formidable|supabase\.storage|createSignedUploadUrl|S3Client|PutObjectCommand|new\s+Queue|Celery\(|BackgroundTasks/i.test(projectSurfaceText);
 }
 
 function needsCssCleanup(css: string, markupText: string): boolean {

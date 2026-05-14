@@ -649,6 +649,24 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'ui_unimplemented_hosted_service_claim':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Align UI service claims with implemented backend',
+        description: f.message,
+        acceptance_criteria: [
+          'public UI no longer promises hosted upload, processing or artifact-return flows without backend evidence',
+          'file-upload controls are removed or clearly replaced by beta/local CLI usage guidance',
+          'service copy names the current supported workflow and does not imply a live hosted processor',
+          'build verification still passes after the copy and markup change',
+        ],
+        expected_changed_files: ['src', 'app', 'pages', 'components', 'templates', 'static', 'example', 'README.md'],
+        verification_commands: buildCommands.length > 0 ? [buildCommands[0]!] : verifyForTest,
+        priority: f.severity,
+        status: 'pending',
+      };
     case 'missing_social_deduction_rules_engine':
     case 'random_social_deduction_tie_breaker':
     case 'missing_social_deduction_rule_tests':

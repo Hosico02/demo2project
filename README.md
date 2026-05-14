@@ -119,6 +119,10 @@ demo. Current harness families include:
   before productizing async behavior.
 - **UI product verification** — checks browser harnesses, render smoke,
   accessibility, responsive layout and common interaction risks.
+- **Public product-claim verification** — flags UI/docs that promise hosted
+  upload, processing or artifact-return flows without backend, worker, storage
+  or API evidence; deterministic repair rewrites those surfaces into explicit
+  beta CLI usage guidance instead of shipping false product claims.
 
 ---
 

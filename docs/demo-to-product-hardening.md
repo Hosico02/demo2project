@@ -17,6 +17,9 @@ This note records the issues found while testing Demo2Project against
    response could end a task even when a repair prompt would have recovered it.
 5. Long runs needed explicit budgets, heartbeats, stop reasons, and trend
    reports. Without those, a 10-hour task is hard to audit.
+6. Public product surfaces could overpromise. A UI could advertise hosted
+   upload/processing/artifact-return flows even when the repo only contained a
+   static frontend and no API, worker or storage implementation.
 
 ## Changes made
 
@@ -37,6 +40,10 @@ This note records the issues found while testing Demo2Project against
   `.demo2project/iterations`, `.demo2project/events`, `.demo2project/evidence`,
   and `.demo2project/qa-cases.json`, plus CI wired to test/build commands. This
   fixes the earlier `gap=0` but `score=74` mismatch.
+- UI/product gap analysis now flags unimplemented hosted-service claims. Planner
+  turns the finding into a dedicated task, and the rule-based executor can
+  rewrite unsupported upload/return surfaces into explicit beta CLI usage
+  guidance.
 
 ## Recommended 10-hour command
 

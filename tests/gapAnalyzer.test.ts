@@ -318,6 +318,65 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('ui_variant_style_drift');
   });
 
+  it('flags UI pages that promise hosted file processing without backend evidence', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-ui-service-claim-gap-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# UI Service Demo\n\nRun the Vite app.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'ui-service-claim-demo',
+      scripts: { dev: 'vite', build: 'vite build', test: 'vitest run' },
+      dependencies: { vue: '^3.5.0', vite: '^6.0.0' },
+      devDependencies: { '@vitejs/plugin-vue': '^5.0.0', vitest: '^2.0.0' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'index.html'), '<div id="app"></div><script type="module" src="/src/App.vue"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'App.vue'), [
+      '<template>',
+      '  <main>',
+      '    <h1>Upload a demo. Receive a product zip.</h1>',
+      '    <form data-upload-form data-return-format="zip">',
+      '      <input type="file" data-demo-upload accept=".zip,.7z,.rar,.tar,.tar.gz,.tgz" />',
+      '      <p>MatrixOmnix will process the archive and return a productized zip artifact.</p>',
+      '    </form>',
+      '  </main>',
+      '</template>',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const serviceClaim = gap.findings.find((f) => f.category === 'ui_unimplemented_hosted_service_claim');
+
+    expect(serviceClaim?.severity).toBe('high');
+    expect(serviceClaim?.related_files).toContain('src/App.vue');
+  });
+
+  it('does not flag explicit beta usage guides as hosted service claims', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-ui-beta-guide-gap-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# UI Beta Guide\n\nRun the Vite app.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'ui-beta-guide-demo',
+      scripts: { dev: 'vite', build: 'vite build', test: 'vitest run' },
+      dependencies: { vue: '^3.5.0', vite: '^6.0.0' },
+      devDependencies: { '@vitejs/plugin-vue': '^5.0.0', vitest: '^2.0.0' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'index.html'), '<div id="app"></div><script type="module" src="/src/App.vue"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'App.vue'), [
+      '<template>',
+      '  <main>',
+      '    <h1>How to use MatrixOmnix beta.</h1>',
+      '    <p>MatrixOmnix is not a hosted file-processing service yet. Use the beta locally from the CLI.</p>',
+      '    <code>pnpm matrixomnix analyze --project ./demo</code>',
+      '  </main>',
+      '</template>',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).not.toContain('ui_unimplemented_hosted_service_claim');
+  });
+
   it('flags a missing Flask start guard even when API key text appears elsewhere', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-guard-gap-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
