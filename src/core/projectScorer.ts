@@ -66,13 +66,8 @@ export async function scoreProject(
   runtimeScore = Math.min(10, runtimeScore);
 
   // --- docs ---
-  let docsScore = 0;
   const readme = await readTextSafe(path.join(root, 'README.md'));
-  if (readme && readme.trim().length > 0) {
-    docsScore += 5;
-    if (readme.length > 400) docsScore += 2;
-    if (/##\s*(Usage|Getting Started|Install|Quick Start|快速开始|安装|使用|部署)/i.test(readme)) docsScore += 2;
-  }
+  let docsScore = scoreReadmeContent(readme, notes);
   if (has('docs')) docsScore += 1;
   docsScore = Math.min(10, docsScore);
 
@@ -156,6 +151,45 @@ export async function scoreProject(
     breakdown,
     notes,
   };
+}
+
+function scoreReadmeContent(readme: string | null, notes: string[]): number {
+  if (!readme || readme.trim().length === 0) return 0;
+  const text = readme.trim();
+  const normalized = text.toLowerCase();
+  if (isPlaceholderReadme(normalized) || text.length < 120) {
+    notes.push('README appears placeholder or too thin; docs_score limited until purpose, setup and usage are documented.');
+    return text.length >= 40 ? 2 : 1;
+  }
+
+  let score = 2;
+  if (/^#\s+\S+/m.test(text)) score += 1;
+  if (text.length >= 200) score += 1;
+  if (text.length >= 400) score += 2;
+  if (/##\s*(Usage|Getting Started|Install|Quick Start|快速开始|安装|使用|部署)/i.test(text)) score += 2;
+  if (hasReadmeBodyContent(text)) score += 1;
+  if (/(pnpm|npm|yarn|bun|pip|poetry|python|node|docker|curl|matrixomnix|demo2project)\s+[^\n]+/.test(text)) score += 1;
+  if (/##\s*(Test|Tests|Verification|Development|Deploy|Deployment|配置|测试|验证|开发|部署)/i.test(text)) score += 1;
+  return Math.min(9, score);
+}
+
+function hasReadmeBodyContent(text: string): boolean {
+  const bodyLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !/^[-*_`>]+$/.test(line));
+  return bodyLines.some((line) => line.length >= 12);
+}
+
+function isPlaceholderReadme(normalized: string): boolean {
+  const body = normalized
+    .replace(/^#.*$/gm, '')
+    .replace(/[`*_>\-#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!body) return true;
+  return /\b(todo|tbd|coming soon|lorem ipsum|placeholder|fixme|write me|under construction|to be written)\b/.test(body) ||
+    /待补充|占位|稍后补充|建设中/.test(body);
 }
 
 export function scoreTotalFromBreakdown(

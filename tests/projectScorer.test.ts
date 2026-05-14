@@ -97,4 +97,21 @@ describe('projectScorer', () => {
     expect(score.breakdown.docs_score).toBeGreaterThanOrEqual(9);
     expect(score.breakdown.build_score).toBeGreaterThanOrEqual(10);
   });
+
+  it('does not award substantive documentation credit for placeholder README content', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-placeholder-readme-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\nTODO\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'placeholder-readme',
+      scripts: { test: 'node --test tests/smoke.test.mjs' },
+    }));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'tests', 'smoke.test.mjs'), 'import test from "node:test"; test("x", () => {});\n');
+
+    const snap = await takeSnapshot(dir);
+    const score = await scoreProject(snap);
+
+    expect(score.breakdown.docs_score).toBeLessThanOrEqual(2);
+    expect(score.notes.join('\n')).toContain('README appears placeholder or too thin');
+  });
 });
