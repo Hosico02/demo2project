@@ -1,10 +1,12 @@
 {
-  "name": "demo2project",
+  "name": "matrixomnix",
   "version": "0.0.8",
   "type": "module",
-  "description": "Iteratively turn demos into production-ready projects via a multi-agent loop with QA learning.",
+  "packageManager": "pnpm@11.0.9",
+  "description": "MatrixOmnix turns demos into production-ready products via a multi-agent harness with verification and QA learning.",
   "license": "MIT",
   "bin": {
+    "matrixomnix": "./dist/cli/index.js",
     "demo2project": "./dist/cli/index.js"
   },
   "scripts": {
@@ -21,6 +23,10 @@
     "qa:regression": "node dist/cli/index.js qa:regression",
     "self-check": "node dist/cli/index.js self-check",
     "init": "node dist/cli/index.js init",
+    "matrixomnix": "node dist/cli/index.js",
+    "site:dev": "pnpm --dir site dev",
+    "site:build": "pnpm --dir site build",
+    "site:preview": "pnpm --dir site preview",
     "site:check": "node scripts/site-check.mjs"
   },
   "devDependencies": {

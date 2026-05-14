@@ -1,34 +1,42 @@
-# Demo2Project
+# MatrixOmnix
 
-**Demo2Project is a projectization control layer — not another coding agent.**
+**MatrixOmnix is a demo-to-product operating system — not another coding agent.**
+
+`demo2project` remains as a backwards-compatible CLI alias while the product
+brand moves to MatrixOmnix.
 
 ## Quickstart
 
 ```bash
 pnpm install && pnpm build
-pnpm demo2project doctor                         # check your environment
-pnpm demo2project init --interactive             # 30-second setup wizard
-pnpm demo2project quickstart --use-example       # 5-minute analyze/gap/trust loop
+pnpm matrixomnix doctor                          # check your environment
+pnpm matrixomnix init --interactive              # 30-second setup wizard
+pnpm matrixomnix quickstart --use-example        # 5-minute analyze/gap/trust loop
 pnpm run site:check                              # validate the MatrixOmnix web entry
+pnpm run site:build                              # build the Vite/Vue web app
 ```
 
 Then on your real project:
 
 ```bash
-pnpm demo2project analyze --project /path/to/your/repo
-pnpm demo2project gap --project /path/to/your/repo
-pnpm demo2project trust:check --project /path/to/your/repo
-pnpm demo2project iterate --project /path/to/your/repo --provider rule-based --max-iterations 1
-pnpm demo2project report:project --project /path/to/your/repo
+pnpm matrixomnix analyze --project /path/to/your/repo
+pnpm matrixomnix gap --project /path/to/your/repo
+pnpm matrixomnix trust:check --project /path/to/your/repo
+pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1
+pnpm matrixomnix report:project --project /path/to/your/repo
 ```
 
 Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
-Web entry: [`site/index.html`](site/index.html). The MatrixOmnix interface
-ships as a static product surface with About, Service and Contact pages. The
-Service page accepts demo archives (`zip`, `7z`, `rar`, `tar`, `tar.gz`,
-`tgz`) and documents the productization contract: every completed artifact is
-returned as a normalized `zip`.
+Web app: [`site/`](site/). The MatrixOmnix interface is a Vite/Vue app based
+on the original MatrixOmnix visual language, with Home, About, Service and
+Contact views. The Service view accepts demo archives (`zip`, `7z`, `rar`,
+`tar`, `tar.gz`, `tgz`) and documents the productization contract: every
+completed artifact is returned as a normalized `zip`.
+
+Deployment guide: [`docs/deployment.md`](docs/deployment.md). The repository
+includes Vercel, Render and Supabase configuration for a hosted MatrixOmnix
+deployment.
 
 ---
 
@@ -38,7 +46,7 @@ and answers a different question:
 > Has this demo actually become a maintainable project, and if not, what
 > exactly is missing and how do we prove it stayed fixed?
 
-Coding agents are the **Executor** behind a provider seam. Demo2Project owns
+Coding agents are the **Executor** behind a provider seam. MatrixOmnix owns
 the parts coding agents are bad at: **Supervisor + Project Scorer + Gap
 Analyzer + Verification Gate + QA Learning + Regression Memory + Docs Truth
 Check + Workspace Isolation**.
@@ -46,7 +54,7 @@ Check + Workspace Isolation**.
 The thesis is simple: the bottleneck in demo→project work is not raw code
 generation — it is *enforced discipline*. AI agents skip verification, claim
 completion without evidence, reintroduce yesterday's bug, and ship READMEs
-that lie about what runs. Demo2Project mechanically prevents each of those
+that lie about what runs. MatrixOmnix mechanically prevents each of those
 failure modes.
 
 | What we do NOT do | What we DO do |
@@ -66,7 +74,7 @@ hygiene, CI, regression coverage. Each individual gap is easy to describe but
 hard to *consistently* close — AI agents skip verification, claim success
 without evidence, lose context across runs, and reintroduce yesterday's bug.
 
-Demo2Project enforces a discipline:
+MatrixOmnix enforces a discipline:
 
 1. **Score** the project against a project-ready standard.
 2. **Find gaps** with severity + suggested fix.
@@ -93,7 +101,7 @@ before Executor can mutate the wrong project surface.
 
 ## Harness Coverage
 
-Demo2Project treats a "product" as a set of verified contracts, not a prettier
+MatrixOmnix treats a "product" as a set of verified contracts, not a prettier
 demo. Current harness families include:
 
 - **Single-file intake/runtime** — captures `demo.py`, `app.js`, `index.html`
@@ -176,7 +184,7 @@ After tasks finish, the QA Agent:
 5. Upserts into the system-level `qa/specs/qa-regression.spec.json` so the
    knowledge is available cross-project.
 6. Future iterations run a **preflight** that warns about active cases.
-7. `demo2project qa:regression` replays workflow assertions over recorded
+7. `matrixomnix qa:regression` replays workflow assertions over recorded
    history — your CI line for not regressing.
 
 See `docs/qa-agent.md` for the QA Case schema and dedup strategy.
@@ -194,9 +202,9 @@ pnpm test
 CLI usage (after build):
 
 ```bash
-pnpm demo2project analyze --project ./werewolf-demo --evidence --verify
-pnpm demo2project gap --project ./werewolf-demo --evidence --verify
-pnpm demo2project long-run --project ./werewolf-demo --provider minimax-m27 --hours 10 --in-place --output reports/long-run/werewolf.json
+pnpm matrixomnix analyze --project ./werewolf-demo --evidence --verify
+pnpm matrixomnix gap --project ./werewolf-demo --evidence --verify
+pnpm matrixomnix long-run --project ./werewolf-demo --provider minimax-m27 --hours 10 --in-place --output reports/long-run/werewolf.json
 ```
 
 For MiniMax M2.7, set `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`. The
@@ -205,23 +213,23 @@ default MiniMax base URL is `https://api.minimaxi.com/v1`; override it with
 
 ```bash
 # Inspect a project
-pnpm demo2project analyze --project examples/bad-demo
-pnpm demo2project gap --project examples/bad-demo
-pnpm demo2project plan --project examples/bad-demo --goal "project-ready"
+pnpm matrixomnix analyze --project examples/bad-demo
+pnpm matrixomnix gap --project examples/bad-demo
+pnpm matrixomnix plan --project examples/bad-demo --goal "project-ready"
 
 # Run one mock iteration (no external LLM)
-pnpm demo2project iterate \
+pnpm matrixomnix iterate \
   --project examples/bad-demo \
   --goal "project-ready" \
   --max-iterations 1 \
   --provider mock --mode happy
 
 # QA workflow
-pnpm demo2project qa:preflight --project examples/bad-demo
-pnpm demo2project qa:regression --project examples/bad-demo
+pnpm matrixomnix qa:preflight --project examples/bad-demo
+pnpm matrixomnix qa:regression --project examples/bad-demo
 
 # Run the whole pipeline on this repo
-pnpm demo2project self-check
+pnpm matrixomnix self-check
 ```
 
 All persisted state lives under `<project>/.demo2project/` — safe to delete

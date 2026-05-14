@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-label="MatrixOmnix multi-agent framework loop">
+  <rect width="1200" height="900" fill="#fff"/>
+  <rect x="80" y="80" width="1040" height="740" fill="#f7f7f7" stroke="#111" stroke-width="4"/>
+  <circle cx="600" cy="450" r="168" fill="#111"/>
+  <text x="600" y="432" text-anchor="middle" font-family="Inter,Arial" font-size="52" font-weight="800" fill="#fff">Matrix</text>
+  <text x="600" y="492" text-anchor="middle" font-family="Inter,Arial" font-size="52" font-weight="800" fill="#fff">Omnix</text>
+  <g font-family="Inter,Arial" font-size="34" font-weight="800" fill="#111">
+    <rect x="468" y="118" width="264" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="600" y="174" text-anchor="middle">Analyzer</text>
+    <rect x="806" y="250" width="244" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="928" y="306" text-anchor="middle">Planner</text>
+    <rect x="806" y="562" width="244" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="928" y="618" text-anchor="middle">Executor</text>
+    <rect x="468" y="694" width="264" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="600" y="750" text-anchor="middle">Verifier</text>
+    <rect x="150" y="562" width="244" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="272" y="618" text-anchor="middle">Reviewer</text>
+    <rect x="150" y="250" width="244" height="88" fill="#fff" stroke="#111" stroke-width="3"/>
+    <text x="272" y="306" text-anchor="middle">QA Memory</text>
+  </g>
+  <g fill="none" stroke="#111" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M724 182 C840 198 908 214 928 248"/>
+    <path d="M1012 340 C1058 420 1058 492 1012 562"/>
+    <path d="M888 650 C828 704 754 734 734 738"/>
+    <path d="M466 738 C360 720 304 682 272 650"/>
+    <path d="M190 562 C142 468 142 384 190 338"/>
+    <path d="M394 248 C438 206 484 184 468 182"/>
+  </g>
+</svg>

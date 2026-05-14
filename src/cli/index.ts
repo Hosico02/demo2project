@@ -111,16 +111,18 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { command, flags, positional };
 }
 
-const HELP = `demo2project — turn demos into project-ready baselines via multi-agent iteration
+const HELP = `matrixomnix — turn demos into product-ready baselines via multi-agent iteration
+
+Legacy alias: demo2project
 
 Usage:
-  demo2project <command> [--flags]
+  matrixomnix <command> [--flags]
 
 Quickstart (new users):
-  demo2project doctor                            Check environment + config
-  demo2project init --interactive                Setup wizard (recommended)
-  demo2project quickstart --use-example          5-minute demo against bad-demo
-  demo2project next                              Suggest next action
+  matrixomnix doctor                             Check environment + config
+  matrixomnix init --interactive                 Setup wizard (recommended)
+  matrixomnix quickstart --use-example           5-minute demo against bad-demo
+  matrixomnix next                               Suggest next action
 
 Core (read-only or low-risk):
   init                                           Bootstrap config files
