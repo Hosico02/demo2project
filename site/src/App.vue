@@ -15,25 +15,29 @@
     </header>
 
     <main class="page">
-      <section v-if="page === 'home'" class="hero" id="home">
-        <div ref="titleStackRef" class="title-stack">
-          <div class="title-layer title-layer--en">
-            <h1 class="hero-title hero-title--en">
-              <span class="hero-title__intro">HELLO I'M</span>
-              <span class="hero-title__name">MatrixOmnix</span>
-            </h1>
-          </div>
-          <div class="title-layer title-layer--cn">
-            <h1 class="hero-title hero-title--cn">
-              <span class="hero-title__intro">你好，我是</span>
-              <span class="hero-title__name hero-title__name--cn">全域智能矩阵</span>
-            </h1>
-          </div>
-        </div>
+      <template v-if="page === 'home'">
+        <section class="hero" id="home">
+          <div class="hero-center">
+            <div ref="titleStackRef" class="title-stack">
+              <div class="title-layer title-layer--en">
+                <h1 class="hero-title hero-title--en">
+                  <span class="hero-title__intro">HELLO I'M</span>
+                  <span class="hero-title__name">MatrixOmnix</span>
+                </h1>
+              </div>
+              <div class="title-layer title-layer--cn">
+                <h1 class="hero-title hero-title--cn">
+                  <span class="hero-title__intro">你好，我是</span>
+                  <span class="hero-title__name hero-title__name--cn">全域智能矩阵</span>
+                </h1>
+              </div>
+            </div>
 
-        <p class="subcopy">
-          A production-grade multi-agent harness that turns raw demo archives into verified product zip artifacts.
-        </p>
+            <p class="subcopy">
+              A production-grade multi-agent harness that turns raw demo archives into verified product zip artifacts.
+            </p>
+          </div>
+        </section>
 
         <section class="panel-grid" aria-label="MatrixOmnix capability panels">
           <FlipPanel id="intake" title="Intake" :active="flippedPanels.has('intake')" @open="flipOn" @close="flipOff">
@@ -46,7 +50,7 @@
             The service returns a productized zip with source, tests, docs, reports and reproducible harness scripts.
           </FlipPanel>
         </section>
-      </section>
+      </template>
 
       <section v-else-if="page === 'about'" class="content-page about-page" id="about">
         <PageHeading kicker="About" title="MatrixOmnix is a demo-to-product operating system.">

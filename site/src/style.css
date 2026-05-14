@@ -146,13 +146,19 @@ input:focus-visible,
 
 .hero {
   position: relative;
-  min-height: calc(100vh - 66px);
+  min-height: calc(100svh - 66px);
   display: grid;
-  align-content: center;
+  place-items: center;
+  padding: 0 8vw;
+  text-align: center;
+}
+
+.hero-center {
+  width: min(100%, 1120px);
+  display: grid;
   justify-items: center;
   gap: 22px;
-  padding: 64px 8vw 0;
-  text-align: center;
+  transform: translateY(-2vh);
 }
 
 .title-stack {
@@ -228,7 +234,7 @@ input:focus-visible,
 .panel-grid {
   width: 100vw;
   display: grid;
-  margin-top: 42px;
+  margin-top: 0;
 }
 
 .panel {

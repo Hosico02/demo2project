@@ -40,6 +40,7 @@ record('spa-entry', /<div id="app"><\/div>/.test(index) && /src="\/src\/main\.js
 record('no-static-pages', !existsSync(path.join(site, 'about.html')) && !existsSync(path.join(site, 'service.html')) && !existsSync(path.join(site, 'contact.html')), 'site no longer ships separate static pages');
 record('matrixomnix-brand', /MatrixOmnix/.test(app) && /全域智能矩阵/.test(app), 'MatrixOmnix brand appears in Vue app');
 record('nav-pages', /id: 'about'/.test(app) && /id: 'service'/.test(app) && /id: 'contact'/.test(app), 'Vue app defines About, Service and Contact pages');
+record('home-hero-panel-separation', /<template v-if="page === 'home'">[\s\S]*<section class="hero"[\s\S]*<\/section>\s*<section class="panel-grid"/.test(app), 'Home hero centers title separately from capability panels');
 record('about-images', /framework-loop\.svg/.test(app) && /harness-map\.svg/.test(app) && /deployment-flow\.svg/.test(app), 'About page uses framework images');
 record('github-url', /https:\/\/github\.com\/Hosico02\/demo2project/.test(app), 'open source URL is present');
 record('service-upload-input', /type="file"[\s\S]*data-demo-upload/.test(app), 'service page has upload input');
