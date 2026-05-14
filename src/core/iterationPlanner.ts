@@ -709,6 +709,24 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'below_market_research_parity':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Define source-cited market research roadmap',
+        description: f.message,
+        acceptance_criteria: [
+          'docs/market-research-roadmap.md summarizes source-cited market capabilities',
+          'roadmap separates required, recommended and out-of-scope capabilities',
+          'each proposed capability keeps competitor source URLs as evidence',
+          'roadmap states that source research must not copy competitor text, code, UI or brand assets',
+        ],
+        expected_changed_files: ['docs/market-research-roadmap.md'],
+        verification_commands: ['test -s docs/market-research-roadmap.md'],
+        priority: f.severity,
+        status: 'pending',
+      };
     default:
       if (f.category === 'missing_required_file' && f.related_files.includes('pyproject.toml')) {
         return {

@@ -20,6 +20,7 @@ Then on your real project:
 
 ```bash
 pnpm matrixomnix analyze --project /path/to/your/repo
+pnpm matrixomnix research --project /path/to/your/repo --domain web_ui_app --web
 pnpm matrixomnix gap --project /path/to/your/repo
 pnpm matrixomnix trust:check --project /path/to/your/repo
 pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1
@@ -123,6 +124,11 @@ demo. Current harness families include:
   upload, processing or artifact-return flows without backend, worker, storage
   or API evidence; deterministic repair rewrites those surfaces into explicit
   beta CLI usage guidance instead of shipping false product claims.
+- **Source-cited market research** — `matrixomnix research --web` runs a
+  controlled, audited search provider and writes `.demo2project/research`.
+  Gap analysis consumes only source-backed capabilities, ignores unsourced
+  claims, and creates market-parity tasks without copying competitor text,
+  code, UI, names or brand assets.
 
 ---
 
@@ -135,6 +141,9 @@ demo. Current harness families include:
                       │
        ┌──────────────┼───────────────────┐
        ▼              ▼                   ▼
+   Research ──► source-cited market report
+       │
+       ▼
    Analyzer ──► Planner ──► Executor (Provider) ──► Verifier ──► Reviewer
        │                                                              │
        └──────────────► EventStore (JSONL) ◄──────────────────────────┘

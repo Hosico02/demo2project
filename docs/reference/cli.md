@@ -28,6 +28,18 @@ documents every command grouped by intent.
 | `compare-executors --case <n> --providers <list>` | Provider comparison on benchmark fixtures |
 | `long-run --project <path> [--hours <n>] [--provider <p>]` | Extended demo-to-product loop with trends and stop reason |
 
+## Research
+
+| Command | Purpose |
+|---|---|
+| `research --project <path> --domain <domain> --web [--query "<q>"] [--max-results <n>]` | Controlled competitor/product research. Writes `.demo2project/research/latest.json` and `.demo2project/research/latest.md`; `gap` then turns sourced missing capabilities into market gaps. |
+
+Research networking is disabled unless `--web` is passed. The default provider
+uses the research allowlist in `NetworkGuard`, records network intents under
+the project, and treats all external content as untrusted evidence. The report
+is for capability extraction only; it must not be used to copy competitor text,
+code, UI, names or brand assets.
+
 ## QA
 
 | Command | Purpose |

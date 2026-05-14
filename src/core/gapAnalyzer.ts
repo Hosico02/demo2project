@@ -15,6 +15,8 @@ import path from 'node:path';
 import { shortId } from '../utils/time.js';
 import { evaluateScoreGate } from './scoreGate.js';
 import { gradeProjectScore } from './projectScorer.js';
+import { loadMarketResearchReport } from '../research/MarketResearchAgent.js';
+import { analyzeMarketResearchGaps } from './marketGapAnalyzer.js';
 
 function finding(
   category: string,
@@ -706,6 +708,13 @@ export async function analyzeGaps(
       );
     }
   }
+
+  const marketResearchReport = await loadMarketResearchReport(snapshot.project_path);
+  if (marketResearchReport) {
+    const marketGaps = await analyzeMarketResearchGaps(snapshot.project_path, files, marketResearchReport);
+    findings.push(...marketGaps.findings);
+    productMaturity = mergeProductMaturity(productMaturity, marketGaps.product_maturity);
+  }
   addVerificationFailureFindings(findings, snapshot, score);
 
   const agentMisjudgments = auditAgentMisjudgments({
@@ -830,6 +839,33 @@ function productMaturityScoreGateFailure(
     cap: Math.min(89, productMaturity.score),
     reason: `${productMaturity.domain} maturity ${productMaturity.score}/100 below market_ready`,
   };
+}
+
+function mergeProductMaturity(
+  existing: ProductMaturityAssessment | undefined,
+  next: ProductMaturityAssessment,
+): ProductMaturityAssessment {
+  if (!existing) return next;
+  const base = next.score <= existing.score ? next : existing;
+  const other = base === next ? existing : next;
+  return {
+    ...base,
+    summary: `${base.summary} Additional assessment: ${other.summary}`,
+    capabilities: dedupeCapabilities([...base.capabilities, ...other.capabilities]),
+    missing_capabilities: Array.from(new Set([...base.missing_capabilities, ...other.missing_capabilities])),
+    references: Array.from(new Set([...base.references, ...other.references])),
+  };
+}
+
+function dedupeCapabilities(capabilities: ProductMaturityAssessment['capabilities']): ProductMaturityAssessment['capabilities'] {
+  const seen = new Set<string>();
+  const out: ProductMaturityAssessment['capabilities'] = [];
+  for (const cap of capabilities) {
+    if (seen.has(cap.id)) continue;
+    seen.add(cap.id);
+    out.push(cap);
+  }
+  return out;
 }
 
 function mergeGateFailures(

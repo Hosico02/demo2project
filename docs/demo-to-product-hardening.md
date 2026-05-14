@@ -20,6 +20,9 @@ This note records the issues found while testing Demo2Project against
 6. Public product surfaces could overpromise. A UI could advertise hosted
    upload/processing/artifact-return flows even when the repo only contained a
    static frontend and no API, worker or storage implementation.
+7. Product standards were too static. The analyzer could compare a demo against
+   built-in rules, but it could not gather current competitor/product evidence
+   for an unfamiliar domain before planning productization work.
 
 ## Changes made
 
@@ -44,6 +47,11 @@ This note records the issues found while testing Demo2Project against
   turns the finding into a dedicated task, and the rule-based executor can
   rewrite unsupported upload/return surfaces into explicit beta CLI usage
   guidance.
+- Market research is now a first-class, controlled harness. `matrixomnix
+  research --project <path> --domain <domain> --web` writes source-cited
+  reports under `.demo2project/research`; `gap` consumes only sourced
+  capabilities and planner/executor can create a market-research roadmap without
+  copying competitor IP.
 
 ## Recommended 10-hour command
 

@@ -830,6 +830,54 @@ describe('RuleBasedExecutor', () => {
     expect(doc).toContain('Ranked');
   });
 
+  it('writes a source-cited market research roadmap from the research report', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-market-research-roadmap-'));
+    await fs.mkdir(path.join(dir, '.demo2project', 'research'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.demo2project', 'research', 'latest.json'), JSON.stringify({
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      project_path: dir,
+      domain: 'web_ui_app',
+      query: 'production UI competitors',
+      search_provider: 'fixture',
+      copy_policy: 'Use competitor material only to extract capabilities; do not copy names, text, UI, code, or brand assets.',
+      sources: [{ title: 'UI benchmark', url: 'https://example.com/ui', retrieved_at: new Date(0).toISOString(), snippet: 'Responsive accessible UI.' }],
+      capabilities: [{
+        id: 'responsive_accessible_ui',
+        label: 'Responsive and accessible UI',
+        description: 'Keyboard, touch, responsive layout and semantic labels.',
+        importance: 'required',
+        source_urls: ['https://example.com/ui'],
+        local_evidence_patterns: ['aria-', '@media'],
+      }],
+      risks: [],
+      confidence: 'medium',
+    }));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'market-research1',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Define source-cited market research roadmap',
+        description: 'Dynamic competitor research found missing capabilities',
+        acceptance_criteria: ['docs/market-research-roadmap.md exists'],
+        expected_changed_files: ['docs/market-research-roadmap.md'],
+        verification_commands: ['test -s docs/market-research-roadmap.md'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('docs/market-research-roadmap.md');
+    const doc = await fs.readFile(path.join(dir, 'docs', 'market-research-roadmap.md'), 'utf8');
+    expect(doc).toContain('Responsive and accessible UI');
+    expect(doc).toContain('https://example.com/ui');
+    expect(doc).toContain('Do not copy competitor');
+  });
+
   it('adds player-supplied LLM provider configuration for Flask LLM demos', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-provider-config-'));
     await fs.mkdir(path.join(dir, 'templates'), { recursive: true });

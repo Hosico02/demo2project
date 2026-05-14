@@ -34,6 +34,7 @@ import { generalize } from './commands/generalize.js';
 import { workspaceReport } from './commands/workspaceReport.js';
 import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
 import { redactTest } from './commands/redactTest.js';
+import { researchCmd } from './commands/research.js';
 // --- Phase 8 ---
 import { doctor as doctorCmd } from './commands/doctor.js';
 import { nextCmd } from './commands/next.js';
@@ -133,6 +134,10 @@ Core (read-only or low-risk):
   qa:regression --project <path>                 Run regression spec
   self-check                                     Run analyze/gap/regression + Phase 6/7/8 probes
   trust:check --project <path>                   Repo trust scan (read-only)
+
+Research:
+  research --project <path> --domain <domain> --web
+                                                 Controlled competitor/product research report
 
 Iteration:
   plan        --project <path>                   IterationPlan (no writes)
@@ -396,6 +401,8 @@ async function main(): Promise<number> {
       return taxonomyExplain(args.flags);
     case 'redact:test':
       return redactTest(args.flags);
+    case 'research':
+      return researchCmd(args.flags);
     // --- Phase 6 ---
     case 'autonomy:policy':
       return autonomyPolicyCmd(args.flags);

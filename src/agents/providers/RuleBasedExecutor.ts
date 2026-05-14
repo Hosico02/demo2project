@@ -4,6 +4,7 @@ import type { AgentProvider, AgentContext } from './AgentProvider.js';
 import { readJsonSafe, writeJson } from '../../utils/json.js';
 import { writeText, readTextSafe, fileExists, listFiles } from '../../utils/fs.js';
 import { runCommand } from '../../core/commandRunner.js';
+import type { MarketResearchReport } from '../../research/types.js';
 
 /**
  * RuleBasedExecutor: deterministic, non-LLM executor that **actually writes
@@ -120,6 +121,9 @@ function chooseHandler(task: AgentTask, targets: string[]): Handler | null {
   }
   if (/define social deduction market parity roadmap/i.test(task.title)) {
     return writeSocialDeductionMarketParityRoadmap;
+  }
+  if (/define source-cited market research roadmap/i.test(task.title)) {
+    return writeSourceCitedMarketResearchRoadmap;
   }
   if (/add player-supplied llm provider configuration/i.test(task.title)) {
     return addPlayerSuppliedLlmProviderConfig;
@@ -1122,6 +1126,65 @@ const writeSocialDeductionMarketParityRoadmap: Handler = async (projectPath) => 
   await writeText(target, body);
   return { summary: 'wrote social deduction market parity roadmap', changed_files: ['docs/market-parity.md'] };
 };
+
+const writeSourceCitedMarketResearchRoadmap: Handler = async (projectPath) => {
+  const report = await readJsonSafe<MarketResearchReport>(
+    path.join(projectPath, '.demo2project', 'research', 'latest.json'),
+  );
+  const target = path.join(projectPath, 'docs', 'market-research-roadmap.md');
+  const body = renderMarketResearchRoadmap(report);
+  if ((await readTextSafe(target)) === body) {
+    return { summary: 'source-cited market research roadmap already present', changed_files: [] };
+  }
+  await writeText(target, body);
+  return { summary: 'wrote source-cited market research roadmap', changed_files: ['docs/market-research-roadmap.md'] };
+};
+
+function renderMarketResearchRoadmap(report: MarketResearchReport | null): string {
+  if (!report) {
+    return [
+      '# Source-Cited Market Research Roadmap',
+      '',
+      'No `.demo2project/research/latest.json` report was found. Run `matrixomnix research --project <path> --domain <domain> --query "<market query>" --web` before using this roadmap task.',
+      '',
+      'Do not copy competitor text, code, UI, names, or brand assets. Use research only to extract product capabilities.',
+      '',
+    ].join('\n');
+  }
+  const lines = [
+    '# Source-Cited Market Research Roadmap',
+    '',
+    `Domain: ${report.domain}`,
+    `Query: ${report.query}`,
+    `Generated: ${report.generated_at}`,
+    `Confidence: ${report.confidence}`,
+    '',
+    '## Copy And Scope Policy',
+    'Do not copy competitor text, code, UI, names, layouts, or brand assets. Use the research only as evidence for product capabilities and validate every implementation locally.',
+    '',
+    '## Capability Roadmap',
+  ];
+  const groups = ['required', 'recommended', 'optional', 'out_of_scope'] as const;
+  for (const group of groups) {
+    const caps = report.capabilities.filter((c) => c.importance === group && c.source_urls.length > 0);
+    if (caps.length === 0) continue;
+    lines.push('', `### ${titleCase(group.replace(/_/g, ' '))}`);
+    for (const cap of caps) {
+      lines.push('', `- ${cap.label}`, `  - ${cap.description}`, `  - Evidence: ${cap.source_urls.join(', ')}`, `  - Local evidence patterns: ${cap.local_evidence_patterns.join(', ') || 'none recorded'}`);
+    }
+  }
+  lines.push('', '## Sources');
+  for (const source of report.sources) {
+    lines.push('', `- ${source.title}`, `  - ${source.url}`, `  - ${source.snippet}`);
+  }
+  lines.push('', '## Risks');
+  for (const risk of report.risks) lines.push(`- ${risk}`);
+  return lines.join('\n') + '\n';
+}
+
+function titleCase(text: string): string {
+  return text.replace(/\b\w/g, (m) => m.toUpperCase());
+}
 
 const addPlayerSuppliedLlmProviderConfig: Handler = async (projectPath) => {
   const changed = new Set<string>();

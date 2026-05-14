@@ -5,6 +5,8 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { AnalyzerAgent } from '../src/agents/AnalyzerAgent.js';
 import { analyzeGaps, auditAgentMisjudgments } from '../src/core/gapAnalyzer.js';
+import { writeMarketResearchReport } from '../src/research/MarketResearchAgent.js';
+import type { MarketResearchReport } from '../src/research/types.js';
 import { takeSnapshot } from '../src/core/projectSnapshot.js';
 import type { ProjectScore, ProjectSnapshot } from '../src/core/types.js';
 import { selectStandardForSnapshot } from '../src/standards/standardsLibrary.js';
@@ -948,6 +950,44 @@ describe('gapAnalyzer', () => {
     expect(categories).not.toContain('below_social_deduction_market_parity');
     expect(gap.product_maturity).toBeUndefined();
     expect(gap.score.score_gate?.failures.some((f) => f.gate === 'product_maturity')).not.toBe(true);
+  });
+
+  it('adds source-cited market research gaps when a research report exists', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-research-gap-integration-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# UI Demo\n\nA small visual demo.\n' + 'x'.repeat(240));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      scripts: { build: 'node -e "console.log(1)"' },
+      dependencies: { vue: '^3.0.0' },
+    }));
+    await fs.writeFile(path.join(dir, 'index.html'), '<div id="app"></div>\n');
+    const report: MarketResearchReport = {
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      project_path: dir,
+      domain: 'web_ui_app',
+      query: 'production web UI competitors',
+      search_provider: 'fixture',
+      copy_policy: 'Use competitor material only to extract capabilities; do not copy names, text, UI, code, or brand assets.',
+      sources: [{ title: 'UI benchmark', url: 'https://example.com/ui', retrieved_at: new Date(0).toISOString(), snippet: 'Responsive accessible UI.' }],
+      capabilities: [{
+        id: 'responsive_accessible_ui',
+        label: 'Responsive and accessible UI',
+        description: 'Keyboard, touch, responsive layout and semantic labels.',
+        importance: 'required',
+        source_urls: ['https://example.com/ui'],
+        local_evidence_patterns: ['aria-', '@media', 'focus-visible'],
+      }],
+      risks: [],
+      confidence: 'medium',
+    };
+    await writeMarketResearchReport(dir, report);
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const finding = gap.findings.find((f) => f.category === 'below_market_research_parity');
+
+    expect(finding?.message).toContain('Responsive and accessible UI');
+    expect(gap.product_maturity?.references).toContain('https://example.com/ui');
+    expect(gap.score.score_gate?.failures.some((f) => f.gate === 'product_maturity')).toBe(true);
   });
 
   it('flags LLM web demos that require a server-wide API key instead of player-supplied provider config', async () => {

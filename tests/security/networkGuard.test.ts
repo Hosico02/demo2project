@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateUrl, recordIntent } from '../../src/security/guards/NetworkGuard.js';
+import { evaluateResearchUrl, evaluateUrl, recordIntent } from '../../src/security/guards/NetworkGuard.js';
 import path from 'node:path';
 import os from 'node:os';
 import { promises as fs } from 'node:fs';
@@ -20,5 +20,10 @@ describe('NetworkGuard', () => {
     const file = path.join(root, '.demo2project', 'network', 'intents.jsonl');
     const txt = await fs.readFile(file, 'utf8');
     expect(txt).toContain('GET');
+  });
+  it('keeps research search URLs denied until research networking is explicitly enabled', () => {
+    expect(evaluateUrl('https://duckduckgo.com/html/?q=ui').allowed).toBe(false);
+    expect(evaluateResearchUrl('https://duckduckgo.com/html/?q=ui').allowed).toBe(false);
+    expect(evaluateResearchUrl('https://duckduckgo.com/html/?q=ui', { enabled: true }).allowed).toBe(true);
   });
 });

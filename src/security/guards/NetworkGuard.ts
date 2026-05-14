@@ -20,10 +20,32 @@ const ALLOWLIST: RegExp[] = [
   /^https?:\/\/(github\.com|api\.github\.com)\//,
 ];
 
+const RESEARCH_ALLOWLIST: RegExp[] = [
+  /^https?:\/\/duckduckgo\.com\/html\/?/,
+  /^https?:\/\/lite\.duckduckgo\.com\/lite\/?/,
+  /^https?:\/\/api\.search\.brave\.com\//,
+  /^https?:\/\/serpapi\.com\//,
+  /^https?:\/\/www\.googleapis\.com\/customsearch\//,
+];
+
+export interface ResearchNetworkOptions {
+  enabled?: boolean;
+  untrusted?: boolean;
+  extraAllowlist?: RegExp[];
+}
+
 export function evaluateUrl(url: string, untrusted = false): { allowed: boolean; reason: string } {
   if (untrusted) return { allowed: false, reason: 'untrusted repo: network denied' };
   if (ALLOWLIST.some((re) => re.test(url))) return { allowed: true, reason: 'allowlist match' };
   return { allowed: false, reason: 'not on default allowlist; require approval' };
+}
+
+export function evaluateResearchUrl(url: string, opts: ResearchNetworkOptions = {}): { allowed: boolean; reason: string } {
+  if (opts.untrusted) return { allowed: false, reason: 'untrusted repo: research network denied' };
+  if (!opts.enabled) return { allowed: false, reason: 'research network disabled; pass an explicit opt-in' };
+  const allowlist = [...RESEARCH_ALLOWLIST, ...(opts.extraAllowlist ?? [])];
+  if (allowlist.some((re) => re.test(url))) return { allowed: true, reason: 'research allowlist match' };
+  return { allowed: false, reason: 'not on research allowlist' };
 }
 
 export async function recordIntent(systemRoot: string, intent: Omit<NetworkIntent, 'id' | 'timestamp'>): Promise<NetworkIntent> {

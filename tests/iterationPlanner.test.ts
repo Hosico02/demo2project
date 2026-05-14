@@ -363,6 +363,44 @@ describe('iterationPlanner', () => {
     expect(task?.acceptance_criteria.join('\n')).toContain('market parity');
   });
 
+  it('plans a source-cited market research roadmap from dynamic competitor gaps', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/ui-demo',
+        detected_language: 'javascript',
+        detected_frameworks: ['vue'],
+        package_manager: 'pnpm',
+        test_commands: ['pnpm test'],
+        build_commands: ['pnpm build'],
+        start_commands: ['pnpm dev'],
+        important_files: ['README.md', 'src/App.vue'],
+        missing_files: [],
+        dependency_summary: { runtime: 1, dev: 1, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 100, grade: 'production_ready_baseline', breakdown: {} as never, notes: [] },
+      findings: [{
+        id: 'gap-market-research',
+        category: 'below_market_research_parity',
+        severity: 'medium',
+        message: 'Below source-cited market parity',
+        why_it_matters: '',
+        suggested_fix: '',
+        related_files: ['.demo2project/research/latest.json', 'docs/market-research-roadmap.md'],
+      }],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'use competitor research to productize UI');
+    const task = plan.tasks.find((t) => t.title === 'Define source-cited market research roadmap');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('docs/market-research-roadmap.md');
+    expect(task?.acceptance_criteria.join('\n')).toContain('source-cited');
+  });
+
   it('plans player-supplied LLM provider configuration for public LLM demos', () => {
     const planner = new PlannerAgent();
     const gap = {
