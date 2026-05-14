@@ -34,6 +34,8 @@ Contact views. The Service view accepts demo archives (`zip`, `7z`, `rar`,
 `tar`, `tar.gz`, `tgz`) and documents the productization contract: every
 completed artifact is returned as a normalized `zip`.
 
+Live site: <https://matrixomnix.vercel.app>
+
 Deployment guide: [`docs/deployment.md`](docs/deployment.md). The repository
 includes Vercel, Render and Supabase configuration for a hosted MatrixOmnix
 deployment.

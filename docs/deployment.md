@@ -7,6 +7,8 @@ engine in the repository root.
 
 `vercel.json` builds `site/` and publishes `site/dist`.
 
+Production URL: <https://matrixomnix.vercel.app>
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm --dir site build

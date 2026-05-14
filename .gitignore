@@ -12,3 +12,4 @@ reports/security/
 reports/trust/
 reports/evaluation/evaluation-report-*.json
 reports/evaluation/evaluation-report-*.md
+.vercel
