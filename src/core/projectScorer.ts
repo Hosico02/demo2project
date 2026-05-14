@@ -8,6 +8,7 @@ import type {
   ProjectStandard,
 } from './types.js';
 import { listFiles, readTextSafe } from '../utils/fs.js';
+import { readJsonSafe } from '../utils/json.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
 
 export function gradeProjectScore(total: number): ProjectGrade {
@@ -36,6 +37,8 @@ export async function scoreProject(
   const has = (rel: string): boolean =>
     files.includes(rel) || files.some((f) => f.startsWith(rel + '/'));
   const notes: string[] = [];
+  const pkg = await readJsonSafe<{ scripts?: Record<string, string> }>(path.join(root, 'package.json'));
+  const scripts = pkg?.scripts ?? {};
 
   // --- structure ---
   const structureSignals = ['src', 'tests', 'docs', 'scripts'];
@@ -43,16 +46,18 @@ export async function scoreProject(
   const structureScore = Math.min(10, hits * 3 + (has('.gitignore') ? 1 : 0));
 
   // --- tests ---
+  const testAssessment = await assessTests(root, files, snapshot, scripts, notes);
   let testScore = 0;
-  if (snapshot.test_commands.length > 0) testScore += 6;
-  if (files.some((f) => /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f) || /(^|\/)test_[^/]+\.py$/.test(f) || /_test\.py$/.test(f))) testScore += 5;
-  if (files.some((f) => /(^|\/)tests?\//.test(f))) testScore += 4;
-  if (files.some((f) => /regression/.test(f))) testScore += 3;
+  if (testAssessment.hasMeaningfulCommand) testScore += 4;
+  if (testAssessment.hasAssertionTest) testScore += 6;
+  else if (testAssessment.hasSmokeTest) testScore += 3;
+  if (testAssessment.hasSubstantiveTestFile) testScore += 2;
+  if (testAssessment.hasRegressionTest) testScore += 3;
   testScore = Math.min(18, testScore);
 
   // --- build ---
   let buildScore = 0;
-  if (snapshot.build_commands.length > 0) buildScore += 8;
+  if (hasMeaningfulBuildCommand(snapshot, scripts, notes)) buildScore += 8;
   if (has('tsconfig.json')) buildScore += 2;
   if (snapshot.detected_language === 'python' && has('pyproject.toml')) buildScore += 2;
   if (has('Dockerfile')) buildScore += 2;
@@ -73,7 +78,7 @@ export async function scoreProject(
 
   // --- config ---
   let configScore = 0;
-  if (has('.env.example')) configScore += 4;
+  if (await hasSubstantiveEnvExample(root, notes)) configScore += 4;
   if (has('config') || has('tsconfig.json') || has('pyproject.toml')) configScore += 2;
   if (has('.gitignore')) configScore += 2;
   configScore = Math.min(8, configScore);
@@ -122,8 +127,9 @@ export async function scoreProject(
 
   // --- agent process ---
   let agentProcessScore = 0;
-  if (has('.github/workflows') && snapshot.test_commands.length > 0) agentProcessScore += 3;
-  if (has('.github/workflows') && snapshot.build_commands.length > 0) agentProcessScore += 2;
+  const ciAssessment = await assessCi(root, files, notes);
+  if (ciAssessment.hasTestVerification && testAssessment.hasMeaningfulCommand) agentProcessScore += 3;
+  if (ciAssessment.hasBuildVerification && hasMeaningfulBuildCommand(snapshot, scripts, notes, false)) agentProcessScore += 2;
   agentProcessScore += await scoreDemo2ProjectProcessState(root);
   if (has('qa')) agentProcessScore += 4;
   if (has('qa/specs') || files.includes('qa/specs/qa-regression.spec.json')) agentProcessScore += 4;
@@ -151,6 +157,107 @@ export async function scoreProject(
     breakdown,
     notes,
   };
+}
+
+interface TestAssessment {
+  hasMeaningfulCommand: boolean;
+  hasAssertionTest: boolean;
+  hasSmokeTest: boolean;
+  hasSubstantiveTestFile: boolean;
+  hasRegressionTest: boolean;
+}
+
+async function assessTests(
+  root: string,
+  files: string[],
+  snapshot: ProjectSnapshot,
+  scripts: Record<string, string>,
+  notes: string[],
+): Promise<TestAssessment> {
+  const testFiles = files.filter(isTestFile);
+  const texts = await Promise.all(testFiles.slice(0, 80).map((f) => readTextSafe(path.join(root, f))));
+  const joined = texts.filter((t): t is string => !!t).join('\n');
+  const hasAssertionTest = /\b(assert|expect|should|pytest\.raises|unittest|assertEquals?|assertEqual)\b|\.to(Be|Equal|Contain|Match|Throw|Have|BeTruthy|BeFalsy)\s*\(/.test(joined);
+  const hasSmokeTest = /\b(test|it|describe)\s*\(|def\s+test_[a-zA-Z0-9_]+\s*\(/.test(joined);
+  const hasSubstantiveTestFile = hasAssertionTest || hasSmokeTest;
+  if (testFiles.length > 0 && !hasSubstantiveTestFile) {
+    notes.push('test files appear placeholder; test_score limited until they contain executable test cases or assertions.');
+  }
+
+  const commandBody = scripts.test ?? snapshot.test_commands.join(' && ');
+  const hasMeaningfulCommand = snapshot.test_commands.length > 0 && !isPlaceholderCommand(commandBody);
+  if (snapshot.test_commands.length > 0 && !hasMeaningfulCommand) {
+    notes.push('test command appears placeholder; test_score limited until it runs a real test runner.');
+  }
+  return {
+    hasMeaningfulCommand,
+    hasAssertionTest,
+    hasSmokeTest,
+    hasSubstantiveTestFile,
+    hasRegressionTest: testFiles.some((f) => /regression/i.test(f)) && hasSubstantiveTestFile,
+  };
+}
+
+function isTestFile(file: string): boolean {
+  return /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(file) ||
+    /(^|\/)test_[^/]+\.py$/.test(file) ||
+    /_test\.py$/.test(file);
+}
+
+function hasMeaningfulBuildCommand(
+  snapshot: ProjectSnapshot,
+  scripts: Record<string, string>,
+  notes: string[],
+  emitNote = true,
+): boolean {
+  if (snapshot.build_commands.length === 0) return false;
+  const commandBody = scripts.build ?? snapshot.build_commands.join(' && ');
+  const meaningful = !isPlaceholderCommand(commandBody);
+  if (!meaningful && emitNote) {
+    notes.push('build command appears placeholder; build_score limited until it validates source or artifacts.');
+  }
+  return meaningful;
+}
+
+function isPlaceholderCommand(command: string): boolean {
+  const normalized = command.trim().toLowerCase();
+  return normalized.length === 0 ||
+    /^(echo|printf)\b/.test(normalized) ||
+    /^(true|exit\s+0)$/.test(normalized) ||
+    /\bnode\s+-e\s+["']?\s*console\.log\s*\(/.test(normalized) ||
+    /\b(build ok|test ok|tests? pass(?:ed)?|ok)\b/.test(normalized) && !/\b(vitest|jest|mocha|pytest|node\s+--test|tsc|vite|next|nuxt|astro|webpack|rollup|eslint|ruff|mypy)\b/.test(normalized);
+}
+
+async function hasSubstantiveEnvExample(root: string, notes: string[]): Promise<boolean> {
+  const text = await readTextSafe(path.join(root, '.env.example'));
+  if (text === null) return false;
+  const entries = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  const hasEntry = entries.some((line) => /^[A-Z][A-Z0-9_]{1,80}\s*=/.test(line));
+  if (!hasEntry) notes.push('.env.example appears placeholder; config_score limited until it lists concrete environment variables.');
+  return hasEntry;
+}
+
+interface CiAssessment {
+  hasTestVerification: boolean;
+  hasBuildVerification: boolean;
+}
+
+async function assessCi(root: string, files: string[], notes: string[]): Promise<CiAssessment> {
+  const workflowFiles = files.filter((f) => /^\.github\/workflows\/[^/]+\.(ya?ml)$/.test(f));
+  if (workflowFiles.length === 0) return { hasTestVerification: false, hasBuildVerification: false };
+  const text = (await Promise.all(workflowFiles.map((f) => readTextSafe(path.join(root, f)))))
+    .filter((t): t is string => !!t)
+    .join('\n')
+    .toLowerCase();
+  const hasTestVerification = /\brun:\s*[^\n]*(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\brun:\s*[^\n]*(python3?\s+-m\s+pytest|pytest|vitest|jest|mocha|node\s+--test)\b/.test(text);
+  const hasBuildVerification = /\brun:\s*[^\n]*(npm|pnpm|yarn|bun)\s+(run\s+)?build\b|\brun:\s*[^\n]*(tsc|vite\s+build|next\s+build|python3?\s+-m\s+compileall)\b/.test(text);
+  if (!hasTestVerification && !hasBuildVerification) {
+    notes.push('CI workflow appears empty or non-verifying; agent_process_score limited until it runs test or build commands.');
+  }
+  return { hasTestVerification, hasBuildVerification };
 }
 
 function scoreReadmeContent(readme: string | null, notes: string[]): number {

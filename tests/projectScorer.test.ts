@@ -114,4 +114,66 @@ describe('projectScorer', () => {
     expect(score.breakdown.docs_score).toBeLessThanOrEqual(2);
     expect(score.notes.join('\n')).toContain('README appears placeholder or too thin');
   });
+
+  it('does not award major test/build/config/CI credit for placeholder scaffolding', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-placeholder-scaffold-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\nTODO\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'placeholder-scaffold',
+      scripts: {
+        test: 'echo ok',
+        build: 'echo build ok',
+        start: 'node index.js',
+      },
+    }));
+    await fs.writeFile(path.join(dir, 'index.js'), 'console.log("demo");\n');
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'tests', 'smoke.test.mjs'), '// placeholder test file\n');
+    await fs.writeFile(path.join(dir, '.env.example'), '# TODO\n');
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs: {}\n');
+
+    const snap = await takeSnapshot(dir);
+    const score = await scoreProject(snap);
+
+    expect(score.breakdown.test_score).toBeLessThanOrEqual(4);
+    expect(score.breakdown.build_score).toBe(0);
+    expect(score.breakdown.config_score).toBe(0);
+    expect(score.breakdown.agent_process_score).toBe(0);
+    expect(score.notes.join('\n')).toContain('test command appears placeholder');
+    expect(score.notes.join('\n')).toContain('build command appears placeholder');
+    expect(score.notes.join('\n')).toContain('.env.example appears placeholder');
+    expect(score.notes.join('\n')).toContain('CI workflow appears empty or non-verifying');
+  });
+
+  it('credits CI process only when workflows run real verification commands', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-real-ci-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\n## Install\n\nnpm install\n\n## Usage\n\nRun the checked Node demo locally.\n' + 'x'.repeat(260));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'real-ci',
+      scripts: {
+        test: 'node --test tests/smoke.test.mjs',
+        build: 'node -c index.js',
+      },
+    }));
+    await fs.writeFile(path.join(dir, 'index.js'), 'console.log("demo");\n');
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'tests', 'smoke.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; test("x", () => assert.equal(1, 1));\n');
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), [
+      'name: CI',
+      'jobs:',
+      '  test:',
+      '    steps:',
+      '      - run: npm test',
+      '      - run: npm run build',
+      '',
+    ].join('\n'));
+
+    const snap = await takeSnapshot(dir);
+    const score = await scoreProject(snap);
+
+    expect(score.breakdown.agent_process_score).toBe(5);
+    expect(score.notes.join('\n')).not.toContain('CI workflow appears empty or non-verifying');
+  });
 });
