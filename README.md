@@ -83,14 +83,18 @@ The current system is intentionally strict about evidence:
   still requiring source URLs and local verification commands before their
   proposals become normal tasks. When source-backed fallback advice is already
   available, slow advisory model calls are cut off early instead of blocking a
-  whole iteration.
+  whole iteration; when only deterministic deployment/docs closeout remains,
+  advisory agents are skipped.
+- Broad deterministic backlogs can expand to six planned tasks in one round, so
+  demos with many obvious productization gaps spend fewer iterations on
+  mechanical setup while ordinary plans stay small.
 - agent-facing social deduction demos now get a dedicated maturity model, so
   MatrixOmnix can preserve the multi-agent theater premise while still gating
   rules, model/provider configuration, replay, evaluation and observability.
 - mechanical deployment tasks such as missing Flask `Dockerfile` / `wsgi.py`
-  are routed to deterministic scaffolding before any model-backed free edit, and
-  Python CI is checked for the same `constraints.txt` install policy used by
-  local and Docker builds.
+  are deduplicated and routed to deterministic scaffolding before any
+  model-backed free edit, and Python CI is checked for the same
+  `constraints.txt` install policy used by local and Docker builds.
 - `iterate` plans bounded tasks and verifies them locally before accepting
   progress.
 - failed verification becomes repair work before normal productization

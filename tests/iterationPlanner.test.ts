@@ -71,6 +71,120 @@ describe('iterationPlanner', () => {
     expect(plan.tasks.map((t) => t.title)).toContain('Add Flask deployment scaffold');
   });
 
+  it('deduplicates equivalent Flask deployment scaffold gaps in one plan', () => {
+    const planner = new PlannerAgent();
+    const baseFinding = {
+      severity: 'medium' as const,
+      why_it_matters: '',
+      suggested_fix: '',
+      related_files: [],
+    };
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/flask-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['app.py', 'requirements.txt', 'tests'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 76, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        { ...baseFinding, id: 'gap-docker', category: 'missing_recommended_file', message: 'Missing Dockerfile', related_files: ['Dockerfile'] },
+        { ...baseFinding, id: 'gap-wsgi-file', category: 'missing_recommended_file', message: 'Missing wsgi.py', related_files: ['wsgi.py'] },
+        { ...baseFinding, id: 'gap-wsgi', category: 'missing_wsgi_entrypoint', message: 'Missing WSGI entrypoint', related_files: ['wsgi.py'] },
+        { ...baseFinding, id: 'gap-server', category: 'missing_python_production_server', message: 'Missing gunicorn', related_files: ['requirements.txt'] },
+        { ...baseFinding, id: 'gap-deploy', category: 'missing_deployment_artifact', message: 'Missing deployment artifact', related_files: ['Dockerfile'] },
+        { ...baseFinding, id: 'gap-ci', category: 'no_ci', message: 'No CI', related_files: ['.github/workflows/ci.yml'] },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'ship Flask demo');
+    const titles = plan.tasks.map((task) => task.title);
+
+    expect(titles.filter((title) => title === 'Add Flask deployment scaffold')).toHaveLength(1);
+    expect(titles).toContain('Add minimal CI workflow');
+  });
+
+  it('uses an expanded batch for broad deterministic productization backlogs', () => {
+    const planner = new PlannerAgent();
+    const baseFinding = {
+      severity: 'high' as const,
+      why_it_matters: '',
+      suggested_fix: '',
+      related_files: [],
+    };
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-agent-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['app.py', 'game.py', 'player.py', 'requirements.txt'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 49, grade: 'working_demo', breakdown: {} as never, notes: [] },
+      findings: [
+        { ...baseFinding, id: 'gap-tests', category: 'no_python_tests', message: 'No Python tests', related_files: ['tests/test_smoke.py'] },
+        { ...baseFinding, id: 'gap-api-contract', category: 'missing_api_contract_harness', message: 'API contract missing', related_files: ['docs/api-contract.md'] },
+        { ...baseFinding, id: 'gap-llm', category: 'missing_user_llm_provider_config', message: 'LLM provider config missing', related_files: ['llm_config.py'] },
+        { ...baseFinding, id: 'gap-pyproject', category: 'missing_required_file', message: 'Missing pyproject.toml', related_files: ['pyproject.toml'] },
+        { ...baseFinding, id: 'gap-constraints', category: 'missing_python_dependency_constraints', message: 'Missing constraints', related_files: ['constraints.txt'] },
+        { ...baseFinding, id: 'gap-unbounded', category: 'unbounded_python_dependencies', message: 'Unbounded deps', related_files: ['requirements.txt'] },
+        { ...baseFinding, id: 'gap-health', category: 'missing_healthcheck', message: 'Missing health', related_files: ['app.py'] },
+        { ...baseFinding, id: 'gap-config', category: 'missing_config_guard', message: 'Missing config guard', related_files: ['app.py'] },
+        { ...baseFinding, id: 'gap-api-tests', category: 'missing_api_tests', message: 'Missing API tests', related_files: ['tests/test_app.py'] },
+        { ...baseFinding, id: 'gap-rules', category: 'missing_social_deduction_rules_engine', message: 'Missing rules', related_files: ['rules.py'] },
+      ],
+      blockers: [],
+      recommendations: [],
+      advisory_reports: [{
+        schema_version: 1,
+        generated_at: new Date(0).toISOString(),
+        role: 'planner_critic',
+        provider: 'mock-advisory',
+        model: 'mock',
+        gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+        findings: [],
+        task_proposals: [{
+          title: 'Close market capability gap: Agent evaluation harness',
+          description: 'Add replay and evaluation harness.',
+          acceptance_criteria: ['replay and evaluation exist'],
+          expected_changed_files: ['replay.py', 'evaluation.py'],
+          verification_commands: ['python3 -m pytest -q'],
+          priority: 'high',
+          confidence: 'high',
+          source_urls: ['https://example.com/agent-eval'],
+        }],
+        risks: [],
+        raw_summary: 'Replay and evaluation are expected.',
+      }],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'make agent werewolf product-grade');
+    const titles = plan.tasks.map((task) => task.title);
+
+    expect(plan.tasks).toHaveLength(6);
+    expect(titles).toContain('Add Python smoke tests');
+    expect(titles).toContain('Add API contract harness');
+    expect(titles).toContain('Add player-supplied LLM provider configuration');
+    expect(titles).toContain('Add minimal pyproject.toml');
+    expect(titles).toContain('Add Python dependency constraints');
+    expect(titles).toContain('Close market capability gap: Agent evaluation harness');
+  });
+
   it('does not schedule broad agent-theater hardening when only deployment remains', () => {
     const planner = new PlannerAgent();
     const gap = {

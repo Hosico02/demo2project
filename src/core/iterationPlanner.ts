@@ -11,7 +11,8 @@ import { shortId } from '../utils/time.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const MAX_TASKS_PER_ITERATION = 4;
+const DEFAULT_MAX_TASKS_PER_ITERATION = 4;
+const EXPANDED_MAX_TASKS_PER_ITERATION = 6;
 const MAX_QA_FOCUS_CASES = 3;
 
 export interface PlanIterationOptions {
@@ -25,7 +26,8 @@ export interface PlanIterationOptions {
  *  - Every task carries acceptance_criteria.
  *  - Every task carries at least one verification_command (or a placeholder
  *    that the Executor will be required to replace).
- *  - We never plan more than MAX_TASKS_PER_ITERATION items per round.
+ *  - We keep ordinary rounds small, but allow a wider batch when the backlog
+ *    is broad and dominated by deterministic productization work.
  */
 export function planIteration(
   gapReport: GapReport,
@@ -47,8 +49,9 @@ export function planIteration(
   const selectedFindings: typeof sortedFindings = [];
   const selectedAdvisoryTasks: AgentTask[] = [];
   const seenTaskKeys = new Set<string>();
-  const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId, snapshot.project_path);
-  const maxFindingTasks = advisoryTasks.length > 0 ? MAX_TASKS_PER_ITERATION - 1 : MAX_TASKS_PER_ITERATION;
+  const maxTasks = maxTasksForGap(gapReport);
+  const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId, snapshot.project_path, maxTasks);
+  const maxFindingTasks = advisoryTasks.length > 0 ? Math.max(1, maxTasks - 1) : maxTasks;
 
   for (const f of sortedFindings) {
     const task = buildTaskForFinding(
@@ -72,7 +75,7 @@ export function planIteration(
     seenTaskKeys.add(key);
     tasks.push(advisoryTask);
     selectedAdvisoryTasks.push(advisoryTask);
-    if (tasks.length >= MAX_TASKS_PER_ITERATION) break;
+    if (tasks.length >= maxTasks) break;
   }
   applyQaFocus(tasks, qaFocusCases);
 
@@ -107,7 +110,60 @@ export function planIteration(
   };
 }
 
-function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string, projectPath: string): AgentTask[] {
+function maxTasksForGap(gapReport: GapReport): number {
+  const findings = gapReport.findings.filter((finding) => !isRedundantMaturityFinding(finding, gapReport));
+  const severeCount = findings.filter((finding) => finding.severity === 'blocker' || finding.severity === 'high').length;
+  const deterministicCount = findings.filter((finding) => isDeterministicProductizationCategory(finding.category)).length;
+  if (findings.length >= 10 && severeCount >= 6 && deterministicCount >= 5) {
+    return EXPANDED_MAX_TASKS_PER_ITERATION;
+  }
+  return DEFAULT_MAX_TASKS_PER_ITERATION;
+}
+
+function isDeterministicProductizationCategory(category: string): boolean {
+  return [
+    'missing_required_file',
+    'no_python_tests',
+    'missing_required_command',
+    'missing_api_contract_harness',
+    'missing_config_contract_harness',
+    'missing_python_dependency_constraints',
+    'unbounded_python_dependencies',
+    'missing_healthcheck',
+    'missing_config_guard',
+    'missing_api_tests',
+    'missing_security_headers',
+    'missing_start_input_validation',
+    'missing_active_game_limit',
+    'missing_industrial_api_tests',
+    'missing_regression_tests',
+    'missing_user_llm_provider_config',
+    'broken_llm_provider_select_options',
+    'incomplete_llm_provider_catalog',
+    'llm_provider_catalog_missing_official_models',
+    'missing_social_deduction_rules_engine',
+    'random_social_deduction_tie_breaker',
+    'missing_social_deduction_rule_tests',
+    'missing_social_deduction_mode_validation',
+    'missing_social_deduction_mode_tests',
+    'missing_social_deduction_mode_startup_guard',
+    'missing_game_design_doc',
+    'missing_recommended_file',
+    'missing_wsgi_entrypoint',
+    'missing_python_production_server',
+    'missing_deployment_artifact',
+    'flask_docker_uses_dev_server',
+    'no_ci',
+    'misaligned_ci',
+    'ci_ignores_python_constraints',
+    'missing_deployment_docs',
+    'missing_operational_docs',
+    'missing_structured_logging',
+    'demo_shell_without_product_core',
+  ].includes(category);
+}
+
+function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string, projectPath: string, maxTasks: number): AgentTask[] {
   const candidates: AgentTask[] = [];
   for (const report of reports) {
     for (const proposal of report.task_proposals) {
@@ -146,7 +202,7 @@ function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string, proj
     if (seen.has(key)) continue;
     seen.add(key);
     tasks.push(task);
-    if (tasks.length >= MAX_TASKS_PER_ITERATION) break;
+    if (tasks.length >= maxTasks) break;
   }
   return tasks;
 }
@@ -249,6 +305,14 @@ function taskFamily(title: string): string | null {
     /^add social deduction rules engine$/.test(normalized)
   ) {
     return 'capability:deterministic_rules_and_guardrails';
+  }
+  if (
+    /^add flask deployment scaffold$/.test(normalized) ||
+    /^address gap: missing_recommended_file \((dockerfile|wsgi\.py)\)$/.test(normalized) ||
+    /^address gap: (missing_wsgi_entrypoint|missing_python_production_server|missing_deployment_artifact|flask_docker_uses_dev_server)\b/.test(normalized) ||
+    (/dockerfile|wsgi|gunicorn/.test(normalized) && /deployment scaffold|production server|public demo deployment/.test(normalized))
+  ) {
+    return 'deploy:python_wsgi_scaffold';
   }
   if (
     /^document public demo deployment$/.test(normalized) ||
@@ -805,23 +869,7 @@ function buildTaskForFinding(
     case 'missing_python_production_server':
     case 'missing_deployment_artifact':
     case 'flask_docker_uses_dev_server':
-      return {
-        id: shortId('task'),
-        iteration_id: iterationId,
-        assigned_to: 'executor',
-        title: 'Add Flask deployment scaffold',
-        description: f.message,
-        acceptance_criteria: ['Dockerfile exists', 'wsgi.py exposes app', 'gunicorn dependency exists', 'Dockerfile starts gunicorn instead of app.py'],
-        expected_changed_files: ['Dockerfile', '.dockerignore', 'wsgi.py', 'requirements.txt'],
-        verification_commands: [
-          'test -f Dockerfile',
-          'test -f wsgi.py',
-          'python3 -c "from pathlib import Path; assert \'gunicorn\' in Path(\'requirements.txt\').read_text().lower()"',
-          'python3 -c "from pathlib import Path; t=Path(\'Dockerfile\').read_text().lower(); assert \'gunicorn\' in t and \'wsgi:app\' in t"',
-        ],
-        priority: f.severity,
-        status: 'pending',
-      };
+      return flaskDeploymentScaffoldTask(iterationId, f);
     case 'missing_deployment_docs':
       return {
         id: shortId('task'),
@@ -1226,6 +1274,9 @@ function buildTaskForFinding(
           status: 'pending',
         };
       }
+      if (f.category === 'missing_recommended_file' && f.related_files.some((file) => file === 'Dockerfile' || file === 'wsgi.py')) {
+        return flaskDeploymentScaffoldTask(iterationId, f);
+      }
       return {
         id: shortId('task'),
         iteration_id: iterationId,
@@ -1239,6 +1290,26 @@ function buildTaskForFinding(
         status: 'pending',
       };
   }
+}
+
+function flaskDeploymentScaffoldTask(iterationId: string, f: GapReport['findings'][number]): AgentTask {
+  return {
+    id: shortId('task'),
+    iteration_id: iterationId,
+    assigned_to: 'executor',
+    title: 'Add Flask deployment scaffold',
+    description: f.message,
+    acceptance_criteria: ['Dockerfile exists', 'wsgi.py exposes app', 'gunicorn dependency exists', 'Dockerfile starts gunicorn instead of app.py'],
+    expected_changed_files: ['Dockerfile', '.dockerignore', 'wsgi.py', 'requirements.txt'],
+    verification_commands: [
+      'test -f Dockerfile',
+      'test -f wsgi.py',
+      'python3 -c "from pathlib import Path; assert \'gunicorn\' in Path(\'requirements.txt\').read_text().lower()"',
+      'python3 -c "from pathlib import Path; t=Path(\'Dockerfile\').read_text().lower(); assert \'gunicorn\' in t and \'wsgi:app\' in t"',
+    ],
+    priority: f.severity,
+    status: 'pending',
+  };
 }
 
 function specializedSurfaceTask(

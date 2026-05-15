@@ -8,6 +8,7 @@ import type {
   AgentTask,
   AdvisoryAgentRole,
   AdvisoryReport,
+  GapReport,
 } from '../core/types.js';
 import { AnalyzerAgent } from './AnalyzerAgent.js';
 import { PlannerAgent } from './PlannerAgent.js';
@@ -587,6 +588,20 @@ export class SupervisorAgent {
     },
   ): Promise<AdvisoryReport[]> {
     if (!opts.advisory?.provider) return [];
+    if (shouldSkipAdvisoryForMechanicalCloseout(input.gap)) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'advisory',
+        event_type: 'note',
+        severity: 'info',
+        message: 'advisory agents skipped: remaining gaps are deterministic deployment/docs closeout work',
+        metadata: {
+          advisory: 'skipped_mechanical_closeout',
+          finding_count: input.gap.findings.length,
+        },
+      });
+      return [];
+    }
     const roles = opts.advisory.roles ?? [
       'market_comparator',
       'gap_critic',
@@ -651,6 +666,29 @@ export class SupervisorAgent {
     }
   }
 }
+
+export function shouldSkipAdvisoryForMechanicalCloseout(gap: Pick<GapReport, 'findings' | 'product_maturity'>): boolean {
+  if (gap.findings.length === 0) return false;
+  if (!gap.findings.every((finding) => MECHANICAL_CLOSEOUT_CATEGORIES.has(finding.category))) return false;
+  const missingCapabilities = gap.product_maturity?.missing_capabilities ?? [];
+  return missingCapabilities.every((capability) =>
+    /\b(deploy|deployment|docker|wsgi|gunicorn|ci|workflow|docs?|documentation|operations?|architecture|runbook|health check)\b/i.test(capability),
+  );
+}
+
+const MECHANICAL_CLOSEOUT_CATEGORIES = new Set([
+  'missing_recommended_file',
+  'missing_wsgi_entrypoint',
+  'missing_python_production_server',
+  'missing_deployment_artifact',
+  'flask_docker_uses_dev_server',
+  'missing_deployment_docs',
+  'missing_operational_docs',
+  'missing_game_design_doc',
+  'no_ci',
+  'misaligned_ci',
+  'ci_ignores_python_constraints',
+]);
 
 async function projectHasLlmProviderSurface(projectPath: string): Promise<boolean> {
   if (await exists(officialModelCatalogPath(projectPath))) return true;

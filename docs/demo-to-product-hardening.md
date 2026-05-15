@@ -36,6 +36,12 @@ This note records the issues found while testing Demo2Project against
 12. Model-backed advisory roles could spend a full timeout window before
     falling back to source-backed research, making each iteration slower even
     when safe deterministic fallback tasks were already available.
+13. Planner batching was too conservative for broad deterministic backlogs. In
+    restored werewolf runs it needed five iterations, and Dockerfile/wsgi
+    deployment gaps could still appear as duplicate scaffold work in the same
+    round.
+14. Advisory agents still ran during final mechanical closeout rounds, even
+    when only deployment or operations documentation remained.
 
 ## Changes made
 
@@ -99,6 +105,14 @@ This note records the issues found while testing Demo2Project against
   slow, MatrixOmnix aborts that advisory request after a short fallback budget
   and uses the source-backed fallback report instead of blocking the full
   provider timeout.
+- Planner now expands broad deterministic productization backlogs to six tasks
+  per round while leaving ordinary rounds at four tasks. Flask Dockerfile,
+  `wsgi.py`, gunicorn and deployment-artifact gaps share one task family and
+  plan as a single deterministic deployment scaffold.
+- Supervisor skips model advisory when the remaining gap set is only mechanical
+  deployment, CI or documentation closeout work. In the latest MiniMax werewolf
+  run, the final operations-docs iteration dropped from roughly 17.6 seconds to
+  2.5 seconds while preserving the same 97/100, zero-finding result.
 
 ## Recommended 10-hour command
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { SupervisorAgent } from '../src/agents/SupervisorAgent.js';
+import { SupervisorAgent, shouldSkipAdvisoryForMechanicalCloseout } from '../src/agents/SupervisorAgent.js';
 import { MockAgentProvider } from '../src/agents/providers/MockAgentProvider.js';
 import { RuleBasedExecutor } from '../src/agents/providers/RuleBasedExecutor.js';
 import { AnalyzerAgent } from '../src/agents/AnalyzerAgent.js';
@@ -140,6 +140,54 @@ describe('SupervisorAgent.iterate', () => {
     expect(summary.gap_report.advisory_reports?.[0]?.role).toBe('planner_critic');
     expect(summary.iteration_plan.advisory_focus).toContain('planner_critic: Implement competitor-informed onboarding flow');
     expect(summary.assigned_tasks.map((task) => task.title)).toContain('Implement competitor-informed onboarding flow');
+  });
+
+  it('skips model advisory for deterministic deployment and documentation closeout gaps', () => {
+    expect(shouldSkipAdvisoryForMechanicalCloseout({
+      findings: [
+        {
+          id: 'gap-deploy-docs',
+          category: 'missing_deployment_docs',
+          severity: 'medium',
+          message: 'Missing deployment docs',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['README.md'],
+        },
+        {
+          id: 'gap-ops-docs',
+          category: 'missing_operational_docs',
+          severity: 'medium',
+          message: 'Missing operations docs',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['docs/operations.md'],
+        },
+      ],
+      product_maturity: {
+        domain: 'agent_social_deduction_theater',
+        target_market: 'mature agent-facing werewolf simulation and observer product',
+        score: 95,
+        level: 'market_parity_candidate',
+        summary: 'deployment docs remain',
+        capabilities: [],
+        missing_capabilities: ['Deployable runtime with CI hooks', 'Operations documentation'],
+        references: [],
+      },
+    })).toBe(true);
+
+    expect(shouldSkipAdvisoryForMechanicalCloseout({
+      findings: [{
+        id: 'gap-market',
+        category: 'below_market_research_parity',
+        severity: 'medium',
+        message: 'Market parity missing',
+        why_it_matters: '',
+        suggested_fix: '',
+        related_files: ['docs/market-research-roadmap.md'],
+      }],
+      product_maturity: undefined,
+    })).toBe(false);
   });
 
   it('runs controlled market research before model-backed advisory planning when requested', async () => {
