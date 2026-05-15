@@ -215,6 +215,61 @@ describe('model-backed advisory agents', () => {
     expect(plan.advisory_focus).toContain('planner_critic: Implement behavior-level product flow');
   });
 
+  it('planner deduplicates equivalent advisory deployment README proposals', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-deployment-dedupe-'));
+    const gap = gapReport(dir);
+    gap.findings = [];
+    gap.advisory_reports = [
+      {
+        schema_version: 1,
+        generated_at: new Date(0).toISOString(),
+        role: 'gap_critic',
+        provider: 'mock-advisory',
+        model: 'mock',
+        gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+        findings: [],
+        task_proposals: [{
+          title: 'Add deployment section to README.md',
+          description: 'Document Docker and gunicorn deployment.',
+          acceptance_criteria: ['README documents deployment'],
+          expected_changed_files: ['README.md'],
+          verification_commands: ['grep -i "docker\\|gunicorn" README.md'],
+          priority: 'medium',
+          confidence: 'medium',
+          source_urls: ['https://example.com/deployment'],
+        }],
+        risks: [],
+        raw_summary: 'Deployment docs are needed.',
+      },
+      {
+        schema_version: 1,
+        generated_at: new Date(0).toISOString(),
+        role: 'reviewer_critic',
+        provider: 'mock-advisory',
+        model: 'mock',
+        gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+        findings: [],
+        task_proposals: [{
+          title: 'Add deployment section to README.md',
+          description: 'Document health checks and runtime environment.',
+          acceptance_criteria: ['README documents health checks'],
+          expected_changed_files: ['README.md'],
+          verification_commands: ['grep -i "health\\|environment" README.md'],
+          priority: 'medium',
+          confidence: 'medium',
+          source_urls: ['https://example.com/deployment'],
+        }],
+        risks: [],
+        raw_summary: 'Deployment docs are needed.',
+      },
+    ];
+
+    const plan = planIteration(gap, 'make deployment docs product-grade', 'iter_advisory_deployment_dedupe');
+
+    expect(plan.tasks.filter((task) => task.title === 'Add deployment section to README.md')).toHaveLength(1);
+    expect(plan.advisory_focus.filter((focus) => focus.includes('Add deployment section'))).toHaveLength(1);
+  });
+
   it('planner skips duplicate advisory model-config work and schedules replay evaluation next', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-dedupe-'));
     const gap = gapReport(dir);

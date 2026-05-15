@@ -248,6 +248,13 @@ function taskFamily(title: string): string | null {
   ) {
     return 'capability:deterministic_rules_and_guardrails';
   }
+  if (
+    /^document public demo deployment$/.test(normalized) ||
+    /^add deployment section to readme\.md$/.test(normalized) ||
+    (/deployment/.test(normalized) && /readme/.test(normalized))
+  ) {
+    return 'docs:deployment';
+  }
   return null;
 }
 

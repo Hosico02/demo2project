@@ -120,6 +120,39 @@ describe('MiniMaxProvider', () => {
     expect(await fs.readFile(path.join(dir, 'Dockerfile'), 'utf8')).toContain('-c constraints.txt');
   });
 
+  it('routes mechanical deployment README tasks through deterministic deployment docs', async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\nRun locally.\n');
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response('{}', { status: 500 });
+    }) as typeof fetch;
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+
+    const result = await provider.runTask(
+      {
+        id: 't_deployment_readme',
+        iteration_id: 'i_minimax',
+        assigned_to: 'executor',
+        title: 'Add deployment section to README.md',
+        description: 'Add Docker, gunicorn and health check deployment instructions.',
+        acceptance_criteria: ['README documents deployment'],
+        expected_changed_files: ['README.md'],
+        verification_commands: ['grep -i "docker\\|gunicorn\\|healthz" README.md'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'i_minimax', recent_events: [] },
+    );
+
+    expect(calls).toBe(0);
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('README.md');
+    expect(result.risks).toContain('deterministic_first_mechanical_deployment_docs');
+    expect(await fs.readFile(path.join(dir, 'README.md'), 'utf8')).toContain('Public Demo Deployment');
+  });
+
   it('includes recent verification failures and referenced files in the prompt', async () => {
     const dir = await tmp();
     await fs.writeFile(path.join(dir, 'prompts.py'), 'PROMPTS_SENTINEL = True\n');

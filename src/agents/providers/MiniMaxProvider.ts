@@ -314,6 +314,9 @@ function deterministicFirstTaskReason(task: AgentTask, ctx: AgentContext): strin
   if (!isRepair && isMechanicalDeploymentScaffoldTask(task, plannedText)) {
     return 'deterministic_first_mechanical_deployment_scaffold';
   }
+  if (!isRepair && isMechanicalDeploymentDocsTask(task, plannedText)) {
+    return 'deterministic_first_mechanical_deployment_docs';
+  }
   if (
     !isRepair &&
     (
@@ -366,6 +369,13 @@ function isMechanicalDeploymentScaffoldTask(task: AgentTask, text: string): bool
   );
   return touchesDeploymentEntrypoint &&
     /missing_(recommended|required)_file|dockerfile|wsgi|deployment scaffold|production server/i.test(text);
+}
+
+function isMechanicalDeploymentDocsTask(task: AgentTask, text: string): boolean {
+  const targets = task.expected_changed_files.map((file) => file.toLowerCase());
+  const touchesReadme = targets.includes('readme.md');
+  return touchesReadme &&
+    /deployment|docker|gunicorn|healthz|public demo/i.test(text);
 }
 
 async function invokeMiniMax(
