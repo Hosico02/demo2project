@@ -81,7 +81,9 @@ The current system is intentionally strict about evidence:
 - `iterate --web --advisory-agents` runs controlled market research, then
   model-backed market, gap, planner and reviewer critics before planning, while
   still requiring source URLs and local verification commands before their
-  proposals become normal tasks.
+  proposals become normal tasks. When source-backed fallback advice is already
+  available, slow advisory model calls are cut off early instead of blocking a
+  whole iteration.
 - agent-facing social deduction demos now get a dedicated maturity model, so
   MatrixOmnix can preserve the multi-agent theater premise while still gating
   rules, model/provider configuration, replay, evaluation and observability.

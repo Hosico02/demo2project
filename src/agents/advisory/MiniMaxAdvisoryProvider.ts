@@ -9,6 +9,7 @@ export interface MiniMaxAdvisoryProviderOptions {
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  fallbackAfterMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -20,6 +21,7 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     apiKey?: string;
     baseUrl: string;
     timeoutMs: number;
+    fallbackAfterMs: number;
     fetchImpl: typeof fetch;
   };
 
@@ -31,6 +33,7 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
       apiKey: opts.apiKey ?? process.env.MINIMAX_API_KEY ?? process.env.DEMO2PROJECT_MINIMAX_API_KEY,
       baseUrl: trimTrailingSlash(opts.baseUrl ?? process.env.MINIMAX_BASE_URL ?? 'https://api.minimaxi.com/v1'),
       timeoutMs: opts.timeoutMs ?? parsePositiveInt(process.env.MINIMAX_ADVISORY_TIMEOUT_MS ?? process.env.MINIMAX_TIMEOUT_MS ?? process.env.DEMO2PROJECT_MINIMAX_TIMEOUT_MS) ?? 300_000,
+      fallbackAfterMs: opts.fallbackAfterMs ?? parsePositiveInt(process.env.MINIMAX_ADVISORY_FALLBACK_AFTER_MS ?? process.env.DEMO2PROJECT_MINIMAX_ADVISORY_FALLBACK_AFTER_MS) ?? 15_000,
       fetchImpl: fetchImpl as typeof fetch,
     };
   }
@@ -50,7 +53,8 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
       const messages = buildMessages(request);
-      let response = await this.invoke(messages, controller.signal);
+      let response = await this.invokeWithEarlyFallback(request, messages, controller);
+      if ('earlyFallback' in response) return response.report;
       if ('error' in response) return this.fallbackOrEmptyReport(request, [response.error]);
       let content = extractAssistantText(response.json);
       let parsed = parseJsonObject(content);
@@ -74,6 +78,39 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async invokeWithEarlyFallback(
+    request: AdvisoryRequest,
+    messages: Array<{ role: 'system' | 'user'; content: string }>,
+    controller: AbortController,
+  ): Promise<{ json: unknown } | { error: string } | { earlyFallback: true; report: AdvisoryReport }> {
+    const earlyFallback = this.earlyFallbackReport(request);
+    const canUseEarlyFallback = !!earlyFallback &&
+      this.opts.fallbackAfterMs > 0 &&
+      this.opts.fallbackAfterMs < this.opts.timeoutMs;
+    const invokePromise = this.invoke(messages, controller.signal).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      return { error: `MiniMax advisory error: ${message}` };
+    });
+    if (!canUseEarlyFallback) return invokePromise;
+
+    const raced = await Promise.race([
+      invokePromise,
+      sleep(this.opts.fallbackAfterMs).then(() => ({ earlyFallback: true as const })),
+    ]);
+    if ('earlyFallback' in raced) {
+      controller.abort();
+      invokePromise.catch(() => undefined);
+      return { earlyFallback: true, report: earlyFallback };
+    }
+    return raced;
+  }
+
+  private earlyFallbackReport(request: AdvisoryRequest): AdvisoryReport | null {
+    return marketResearchFallbackReport(request, this.name, this.model, [
+      `minimax_advisory_early_fallback_after_${this.opts.fallbackAfterMs}ms`,
+    ]);
   }
 
   private async invoke(
@@ -358,6 +395,10 @@ function parsePositiveInt(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function truncate(text: string, max: number): string {

@@ -477,6 +477,46 @@ describe('model-backed advisory agents', () => {
     expect(await fs.readFile(path.join(dir, 'app.js'), 'utf8')).toBe('console.log("demo");\n');
   });
 
+  it('MiniMax advisory provider uses source-backed early fallback when the model is slow', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-advisory-early-fallback-'));
+    let aborted = false;
+    let calls = 0;
+    const fetchImpl = ((_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      calls++;
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new Error('aborted'));
+        });
+      });
+    }) as typeof fetch;
+
+    const provider = new MiniMaxAdvisoryProvider({
+      enabled: true,
+      apiKey: 'test-key',
+      fetchImpl,
+      model: 'MiniMax-M2.7-highspeed',
+      timeoutMs: 1_000,
+      fallbackAfterMs: 5,
+    });
+    const report = await provider.runAdvisory({
+      role: 'market_comparator',
+      projectPath: dir,
+      goal: 'make it product-ready',
+      snapshot: snapshot(dir),
+      score: score(),
+      gap: gapReport(dir),
+      marketResearch: marketResearchReport(dir),
+      allowNetwork: true,
+    });
+
+    expect(calls).toBe(1);
+    expect(aborted).toBe(true);
+    expect(report.risks).toContain('minimax_advisory_early_fallback_after_5ms');
+    expect(report.risks).toContain('fallback_market_research_advisory_used');
+    expect(report.task_proposals[0]?.title).toContain('Replay and evaluation harness');
+  });
+
   it('MiniMax advisory provider repairs prose-wrapped non-JSON advisory output', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-advisory-repair-'));
     let calls = 0;

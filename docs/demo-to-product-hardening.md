@@ -33,6 +33,9 @@ This note records the issues found while testing Demo2Project against
     Dockerfile before a later gate repaired it.
 11. CI could pass while installing Python dependencies without the
     `constraints.txt` policy used by Docker and local setup.
+12. Model-backed advisory roles could spend a full timeout window before
+    falling back to source-backed research, making each iteration slower even
+    when safe deterministic fallback tasks were already available.
 
 ## Changes made
 
@@ -91,6 +94,11 @@ This note records the issues found while testing Demo2Project against
   `requirements.txt` without `-c constraints.txt` when a constraints policy is
   present, and the rule-based executor rewrites Python CI to use the same
   install policy.
+- MiniMax advisory now has a source-backed early fallback path. When controlled
+  market research already contains usable capabilities and the advisory model is
+  slow, MatrixOmnix aborts that advisory request after a short fallback budget
+  and uses the source-backed fallback report instead of blocking the full
+  provider timeout.
 
 ## Recommended 10-hour command
 
