@@ -356,6 +356,7 @@ input:focus-visible,
 }
 
 .image-grid,
+.about-narrative,
 .text-grid,
 .service-layout,
 .contact-grid {
@@ -366,12 +367,14 @@ input:focus-visible,
 }
 
 .text-grid,
+.about-narrative,
 .service-layout,
 .contact-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .image-grid figure,
+.about-narrative article,
 .text-grid article,
 .usage-card,
 .usage-steps,
@@ -402,15 +405,39 @@ input:focus-visible,
 }
 
 .text-grid article,
+.about-narrative article,
 .usage-card,
 .usage-steps,
 .contact-grid a {
   padding: 28px;
 }
 
+.about-narrative article {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.about-narrative h2,
 .text-grid h2 {
   margin: 0 0 14px;
   font-size: 1.5rem;
+}
+
+.about-narrative h2 {
+  margin-bottom: 0;
+}
+
+.about-narrative p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.about-narrative code {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .repo-link {
@@ -483,6 +510,7 @@ input:focus-visible,
 
 @media (max-width: 900px) {
   .image-grid,
+  .about-narrative,
   .text-grid,
   .service-layout,
   .contact-grid {

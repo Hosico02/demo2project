@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated_at": "2026-05-14T06:00:10.687Z",
+  "updated_at": "2026-05-15T05:55:47.300Z",
   "assertions": [
     "missing_validation_after_code_change",
     "supervisor_accepts_unverified_result",
@@ -76,16 +76,16 @@
     },
     {
       "id": "qa_mp3hfjdwev0t1a",
-      "title": "Command \"npm run\" failed 2 times in one iteration without root-cause analysis",
+      "title": "Command \"npm run\" failed 3 times in one iteration without root-cause analysis",
       "category": "repeated_failure",
       "severity": "high",
-      "frequency": 75,
+      "frequency": 95,
       "status": "active",
       "project_type": [
         "generic"
       ],
       "bug_source": {
-        "iteration_id": "iter_mp4xwgq7yrimbz",
+        "iteration_id": "iter_mp5a2eu6k1xj6w",
         "agent": "verifier",
         "source": "iteration_event",
         "related_files": []
@@ -119,7 +119,7 @@
         }
       ],
       "expected_behavior": "After two consecutive failures of the same command, the executor must summarize root cause before continuing.",
-      "actual_failure": "command \"npm run\" failed 2 times",
+      "actual_failure": "command \"npm run\" failed 3 times",
       "regression_assertions": [
         "if changed_files is non-empty then commands_run must be non-empty",
         "if commands_run is empty then unable_to_verify_reason must be set",
@@ -133,8 +133,8 @@
       "suggested_test_type": "workflow_regression",
       "fingerprint": "repeated_failure_without_root_cause:npm run",
       "created_at": "2026-05-13T03:10:45.476Z",
-      "updated_at": "2026-05-14T03:39:37.416Z",
-      "last_seen_at": "2026-05-14T03:39:37.416Z",
+      "updated_at": "2026-05-14T09:31:08.960Z",
+      "last_seen_at": "2026-05-14T09:31:08.960Z",
       "related_files": []
     },
     {
@@ -142,13 +142,13 @@
       "title": "Command \"python3 -m\" failed 2 times in one iteration without root-cause analysis",
       "category": "repeated_failure",
       "severity": "high",
-      "frequency": 56,
+      "frequency": 264,
       "status": "active",
       "project_type": [
         "generic"
       ],
       "bug_source": {
-        "iteration_id": "iter_mp52nb8jx5crjt",
+        "iteration_id": "iter_mp6hihclen8q5g",
         "agent": "verifier",
         "source": "iteration_event",
         "related_files": []
@@ -196,8 +196,8 @@
       "suggested_test_type": "workflow_regression",
       "fingerprint": "repeated_failure_without_root_cause:python3 -m",
       "created_at": "2026-05-13T06:38:40.892Z",
-      "updated_at": "2026-05-14T05:52:27.635Z",
-      "last_seen_at": "2026-05-14T05:52:27.635Z",
+      "updated_at": "2026-05-15T05:36:23.309Z",
+      "last_seen_at": "2026-05-15T05:36:23.309Z",
       "related_files": []
     }
   ]

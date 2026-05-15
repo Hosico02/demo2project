@@ -116,12 +116,11 @@ export async function selectStandardForSnapshot(
   if (lang === 'typescript' && (files.includes('tsconfig.json') || fws.includes('vitest') || fws.includes('jest'))) {
     ordered.push('typescript-library');
   }
-  if (
-    lang === 'typescript' ||
-    lang === 'javascript' ||
-    snapshot.start_commands.some((c) => /node\b/.test(c)) ||
-    snapshot.package_manager !== 'unknown'
-  ) {
+  const hasCliEntry =
+    files.includes('bin') ||
+    files.some((f) => f.startsWith('bin/')) ||
+    snapshot.start_commands.some((c) => /\bnode\b/.test(c));
+  if (hasCliEntry && (lang === 'typescript' || lang === 'javascript' || snapshot.package_manager !== 'unknown')) {
     ordered.push('node-cli');
   }
   ordered.push('generic-project');

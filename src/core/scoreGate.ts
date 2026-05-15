@@ -18,19 +18,27 @@ export function evaluateScoreGate(input: ScoreGateInput): ScoreGateResult {
   for (const ev of input.evidence) {
     if (ev.result !== 'failed') continue;
     if (ev.dimension === 'build_score') {
+      if (!ev.evidence_command) continue;
       failures.push({
         gate: 'build',
         cap: 39,
         reason: 'build command failed',
         evidence_command: ev.evidence_command,
+        stdout_summary: ev.stdout_summary,
+        stderr_summary: ev.stderr_summary,
+        failure_reason: ev.failure_reason,
       });
     }
     if (ev.dimension === 'test_score') {
+      if (!ev.evidence_command) continue;
       failures.push({
         gate: 'test',
         cap: 49,
         reason: 'test command failed',
         evidence_command: ev.evidence_command,
+        stdout_summary: ev.stdout_summary,
+        stderr_summary: ev.stderr_summary,
+        failure_reason: ev.failure_reason,
       });
     }
   }

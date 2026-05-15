@@ -42,7 +42,7 @@ const SECRET_PATTERNS = [
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bsk-ant-[A-Za-z0-9_\-]{20,}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{30,}\b/,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /^-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{20,}^-----END [A-Z ]*PRIVATE KEY-----/m,
 ];
 
 export async function runAntiGaming(snapshot: ProjectSnapshot): Promise<AntiGamingFinding[]> {

@@ -54,7 +54,7 @@
 
       <section v-else-if="page === 'about'" class="content-page about-page" id="about">
         <PageHeading kicker="About" title="MatrixOmnix is a demo-to-product operating system.">
-          Today it is a beta multi-agent harness for productizing local demo repositories. Next it becomes a managed service with controlled workspaces, clearer product gates and auditable long-horizon runs.
+          MatrixOmnix exists because a demo can look impressive while still missing the systems that make it usable, testable, deployable and maintainable. The project is currently a beta local-first multi-agent harness, and its long-term direction is a managed productization platform with auditable workspaces, market-aware gates and repeatable long-horizon runs.
         </PageHeading>
 
         <div class="image-grid" aria-label="MatrixOmnix framework diagrams">
@@ -72,17 +72,44 @@
           </figure>
         </div>
 
-        <section class="text-grid" aria-label="Current and future state">
+        <section class="about-narrative" aria-label="MatrixOmnix overview">
           <article>
-            <h2>Current</h2>
+            <h2>Why it exists</h2>
             <p>
-              MatrixOmnix scores projects, finds gaps, plans verifiable tasks, executes via providers such as MiniMax, repairs failed verification and stores QA regressions across iterations.
+              Coding agents are already strong at producing code, but demo-to-product work fails when there is no independent system asking whether the result has tests, contracts, configuration, runtime controls, documentation, UX checks, release evidence and regression memory. MatrixOmnix sits above coding agents and turns those expectations into a supervised loop.
             </p>
           </article>
           <article>
-            <h2>Future</h2>
+            <h2>What it is today</h2>
             <p>
-              The hosted MatrixOmnix service will move from local CLI operation toward managed workspaces, queued runs, team visibility and traceable reports.
+              The beta runs locally against a repository you control. It analyzes project structure, detects delivery surfaces, researches market expectations when explicitly allowed, plans small verified tasks, runs provider-backed executors, repairs failed verification first and stores evidence under <code>.demo2project</code>. It is a harness for controlled iteration, not a black-box promise that every demo is instantly production-grade.
+            </p>
+          </article>
+          <article>
+            <h2>What we do not claim yet</h2>
+            <p>
+              MatrixOmnix is not yet a hosted upload-and-return service, and a high internal score must not replace human review. The current priority is making the scoring stricter: source-cited market research must produce real capabilities, provider output must be parseable and every product-ready claim must survive tests, builds and gap gates.
+            </p>
+          </article>
+          <article>
+            <h2>Where it is going</h2>
+            <p>
+              The roadmap moves toward managed workspaces, queued long-running sessions, safer provider sandboxes, richer UI/browser verification, domain-specific product gates, team dashboards and report artifacts that explain exactly what changed, what passed, what failed and what still blocks a mature product release.
+            </p>
+          </article>
+        </section>
+
+        <section class="text-grid" aria-label="Current and future state">
+          <article>
+            <h2>Current state</h2>
+            <p>
+              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. It also records misjudgments so the system can learn when an agent picked the wrong surface or accepted weak evidence.
+            </p>
+          </article>
+          <article>
+            <h2>Future state</h2>
+            <p>
+              The mature product should compare a demo against real market expectations, run for hours without losing discipline, explain every gate in plain language and let teams decide whether to continue iterating, ship an internal baseline or block release until remaining product gaps are closed.
             </p>
           </article>
         </section>

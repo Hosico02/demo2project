@@ -57,4 +57,36 @@ describe('marketGapAnalyzer', () => {
     expect(result.product_maturity.references).toContain('https://example.com/ui');
     expect(result.product_maturity.missing_capabilities).toContain('Responsive and accessible UI');
   });
+
+  it('fails closed when research sources produce no source-cited capabilities', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-empty-market-gap-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Demo\n\nA small social deduction demo.\n');
+    const report: MarketResearchReport = {
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      project_path: dir,
+      domain: 'social_deduction_game',
+      query: 'mature online werewolf product competitors',
+      search_provider: 'fixture',
+      copy_policy: 'Use competitor material only to extract capabilities; do not copy names, text, UI, code, or brand assets.',
+      sources: [
+        {
+          title: 'Competitor landing page',
+          url: 'https://example.com/werewolf',
+          retrieved_at: new Date(0).toISOString(),
+          snippet: 'A mature online social deduction product.',
+        },
+      ],
+      capabilities: [],
+      risks: ['Capability extraction returned no product capabilities.'],
+      confidence: 'low',
+    };
+
+    const result = await analyzeMarketResearchGaps(dir, ['README.md'], report);
+
+    expect(result.product_maturity.score).toBe(0);
+    expect(result.product_maturity.level).toBe('demo');
+    expect(result.product_maturity.summary).toContain('0 source-cited market capabilities');
+    expect(result.findings[0]?.category).toBe('market_research_capability_extraction_failed');
+  });
 });

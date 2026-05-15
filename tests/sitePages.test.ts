@@ -29,6 +29,10 @@ describe('MatrixOmnix site', () => {
     expect(app).toContain('framework-loop.svg');
     expect(app).toContain('harness-map.svg');
     expect(app).toContain('deployment-flow.svg');
+    expect(app).toContain('Why it exists');
+    expect(app).toContain('What we do not claim yet');
+    expect(app).toContain('source-cited market research must produce real capabilities');
+    expect(app).toContain('managed workspaces');
     expect(app).toContain('https://github.com/Hosico02/demo2project');
     expect(app).toContain('requestAnimationFrame');
     expect(app).toContain('onTouchstart');

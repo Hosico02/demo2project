@@ -6,6 +6,7 @@ import { SupervisorAgent } from '../src/agents/SupervisorAgent.js';
 import { MockAgentProvider } from '../src/agents/providers/MockAgentProvider.js';
 import { RuleBasedExecutor } from '../src/agents/providers/RuleBasedExecutor.js';
 import { AnalyzerAgent } from '../src/agents/AnalyzerAgent.js';
+import { loadOfficialModelCatalog } from '../src/research/OfficialModelCatalog.js';
 
 async function tmpDemo(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-sup-'));
@@ -32,6 +33,77 @@ describe('SupervisorAgent.iterate', () => {
     expect(s.executor_results.length).toBe(s.assigned_tasks.length);
     expect(s.project_score_before.total).toBeGreaterThanOrEqual(0);
     expect(s.project_score_after.total).toBeGreaterThanOrEqual(0);
+  });
+
+  it('refreshes the official LLM model catalog before planning when iteration web opt-in is enabled', async () => {
+    await fs.writeFile(path.join(demo, 'requirements.txt'), 'openai>=1.0.0\nflask>=3.0.0\n');
+    await fs.writeFile(path.join(demo, 'llm_config.py'), [
+      'PROVIDER_PRESETS = {"deepseek": {"default_model": "deepseek-chat"}}',
+      'def public_provider_config():',
+      '    return {"providers": [{"id": "deepseek", "label": "DeepSeek", "default_model": "deepseek-chat"}]}',
+      '',
+    ].join('\n'));
+    const fetchedUrls: string[] = [];
+    const fetchImpl = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      fetchedUrls.push(url);
+      const body = url.includes('deepseek')
+        ? 'deepseek-v4-flash deepseek-v4-pro deepseek-v4-ultra'
+        : url.includes('minimax')
+          ? 'MiniMax-M2.7 MiniMax-M2.7-highspeed MiniMax-M9.9'
+          : url.includes('alibabacloud')
+            ? 'qwen3.6-plus qwen3.6-max-preview qwen9.9-plus'
+            : 'gpt-5.4-mini gpt-5.5 gpt-9.9-mini';
+      return {
+        ok: true,
+        status: 200,
+        text: async () => body,
+      } as Response;
+    };
+
+    await new SupervisorAgent().iterate({
+      projectPath: demo,
+      goal: 'project-ready with current provider model choices',
+      provider: new MockAgentProvider('happy'),
+      maxIterations: 1,
+      officialModelCatalog: {
+        allowNetwork: true,
+        fetchImpl,
+      },
+    });
+
+    const catalog = await loadOfficialModelCatalog(demo);
+    expect(fetchedUrls.length).toBeGreaterThanOrEqual(4);
+    expect(catalog?.providers.find((provider) => provider.id === 'minimax')?.models).toContain('MiniMax-M9.9');
+    expect(catalog?.providers.find((provider) => provider.id === 'qwen')?.models).toContain('qwen9.9-plus');
+    expect(catalog?.providers.find((provider) => provider.id === 'openai')?.models).toContain('gpt-9.9-mini');
+    expect(catalog?.providers.filter((provider) => provider.source_kind === 'live_official_docs').length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('does not refresh LLM model docs for non-LLM projects even when iteration web opt-in is enabled', async () => {
+    let fetchCount = 0;
+    const fetchImpl = async (): Promise<Response> => {
+      fetchCount++;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => 'gpt-9.9-mini',
+      } as Response;
+    };
+
+    await new SupervisorAgent().iterate({
+      projectPath: demo,
+      goal: 'project-ready without unrelated model research',
+      provider: new MockAgentProvider('happy'),
+      maxIterations: 1,
+      officialModelCatalog: {
+        allowNetwork: true,
+        fetchImpl,
+      },
+    });
+
+    expect(fetchCount).toBe(0);
+    await expect(loadOfficialModelCatalog(demo)).resolves.toBeNull();
   });
 
   it('refuses to mark a change-without-verify task as completed', async () => {
@@ -93,6 +165,30 @@ describe('SupervisorAgent.iterate', () => {
     expect(summaries.flatMap((s) => s.verification_results).every((r) => r.passed)).toBe(true);
     const after = await new AnalyzerAgent().fullAnalyzeWithEvidence(dir, { runCommands: true });
     expect(after.gap.findings).toHaveLength(0);
+  });
+
+  it('does not stop on production-ready score while gap findings remain', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-sup-score-gap-'));
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'score-gap-cli',
+      type: 'module',
+      bin: { 'score-gap-cli': './bin/cli.js' },
+      scripts: { build: 'node --check bin/cli.js' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'bin', 'cli.js'), '#!/usr/bin/env node\nif (process.argv.includes("--help")) console.log("Usage: score-gap-cli");\n');
+
+    const summaries = await new SupervisorAgent().iterate({
+      projectPath: dir,
+      goal: 'reach production ready only when no gaps remain',
+      provider: new RuleBasedExecutor(),
+      maxIterations: 6,
+    });
+
+    expect(summaries.length).toBeGreaterThan(2);
+    expect(await fs.stat(path.join(dir, '.github', 'workflows', 'ci.yml'))).toBeTruthy();
+    const after = await new AnalyzerAgent().fullAnalyzeWithEvidence(dir, { runCommands: true });
+    expect(after.gap.findings.some((finding) => finding.category === 'no_ci')).toBe(false);
   });
 
   it('plans repair work from failing verification evidence', async () => {

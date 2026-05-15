@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { RuleBasedExecutor } from '../src/agents/providers/RuleBasedExecutor.js';
 import { SupervisorAgent } from '../src/agents/SupervisorAgent.js';
+import { AnalyzerAgent } from '../src/agents/AnalyzerAgent.js';
 
 async function tmpDemo(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-'));
@@ -13,6 +14,10 @@ async function tmpDemo(): Promise<string> {
   );
   await fs.writeFile(path.join(dir, 'app.js'), 'console.log("hi");\n');
   return dir;
+}
+
+function socialBackboneFixture(body: string): string {
+  return `${body}\n`;
 }
 
 describe('RuleBasedExecutor', () => {
@@ -262,6 +267,110 @@ describe('RuleBasedExecutor', () => {
     expect(pkg.scripts['cli:contract-check']).toBe('node scripts/cli-contract-check.mjs');
   });
 
+  it('implements a tested product core spine and wires CLI entrypoints to it', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-product-core-'));
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'cli-demo',
+      type: 'module',
+      bin: './bin/cli.js',
+      scripts: { test: 'node --test tests/smoke.test.mjs' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'bin', 'cli.js'), '#!/usr/bin/env node\nif (process.argv.includes("--help")) console.log("Usage: cli-demo");\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'product-core',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Implement product core spine',
+        description: 'Productization only added a shell, not executable product behavior',
+        acceptance_criteria: ['product core has executable tests', 'CLI entry uses product core'],
+        expected_changed_files: ['src/product-core.mjs', 'tests/product-core.test.mjs', 'docs/product-core.md', 'bin/cli.js', 'package.json'],
+        verification_commands: ['node --test tests/product-core.test.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('src/product-core.mjs');
+    expect(result.changed_files).toContain('tests/product-core.test.mjs');
+    expect(result.changed_files).toContain('docs/product-core.md');
+    expect(result.changed_files).toContain('bin/cli.js');
+    const core = await fs.readFile(path.join(dir, 'src', 'product-core.mjs'), 'utf8');
+    expect(core).toContain('createProductCore');
+    expect(core).toContain('runWorkflow');
+    const cli = await fs.readFile(path.join(dir, 'bin', 'cli.js'), 'utf8');
+    expect(cli).toContain('createProductCore');
+    expect(cli).toContain('runWorkflow');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts['product:core-check']).toBe('node --test tests/product-core.test.mjs');
+    expect(pkg.scripts.test).toBe('node --test');
+    expect(pkg.scripts.build).toContain('src/product-core.mjs');
+  });
+
+  it('implements a Python product core spine without adding Node validation to Python projects', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-product-core-'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'python-api-demo', scripts: {} }, null, 2));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'python-product-core',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Implement product core spine',
+        description: 'Productization only added a shell, not executable product behavior',
+        acceptance_criteria: ['Python product core has executable tests'],
+        expected_changed_files: ['src/product_core.py', 'tests/test_product_core.py', 'docs/product-core.md', 'package.json'],
+        verification_commands: ['python3 -m pytest tests/test_product_core.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('src/product_core.py');
+    expect(result.changed_files).toContain('tests/test_product_core.py');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts['product:core-check']).toBe('python3 -m pytest tests/test_product_core.py -q');
+    expect(pkg.scripts.build).toContain('ast.parse');
+    expect(pkg.scripts.build).not.toContain('node --check');
+  });
+
+  it('generates Python product core tests that avoid src package import side effects', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-py-product-core-sidefx-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'pytest>=8.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("demo")\n');
+    await fs.writeFile(path.join(dir, 'src', '__init__.py'), 'from . import app\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'py-core-sidefx',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Implement product core spine',
+        description: 'Productization only added shell files',
+        acceptance_criteria: ['Python product core test imports without package side effects'],
+        expected_changed_files: ['src/product_core.py', 'tests/test_product_core.py', 'docs/product-core.md', 'package.json'],
+        verification_commands: ['python3 -m pytest tests/test_product_core.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const test = await fs.readFile(path.join(dir, 'tests', 'test_product_core.py'), 'utf8');
+    expect(test).toContain('spec_from_file_location');
+    expect(test).not.toContain('from src.product_core import');
+  });
+
   it('writes a Flask deployment scaffold for Python projects', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-deploy-'));
     await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
@@ -332,6 +441,98 @@ describe('RuleBasedExecutor', () => {
     const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
     expect(app).toContain('if not has_api_key()');
     expect(app).toContain('return jsonify(missing_api_key_payload()), 400');
+  });
+
+  it('does not add game-only Flask tests or config to generic chat APIs', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-chat-health-'));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      '@app.get("/")',
+      'def index():',
+      '    return "ok"',
+      '@app.post("/chat")',
+      'def chat():',
+      '    body = request.get_json(silent=True) or {}',
+      '    return jsonify({"reply": body.get("message", "")})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+
+    const exec = new RuleBasedExecutor();
+    const result = await exec.runTask(
+      {
+        id: 'guard-chat',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add Flask health and config guard',
+        description: 'Missing health check endpoint',
+        acceptance_criteria: ['/healthz returns status without inventing game routes'],
+        expected_changed_files: ['app.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('app.py');
+    expect(result.changed_files).toContain('tests/test_app.py');
+    expect(result.changed_files).not.toContain('config.py');
+
+    const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
+    expect(app).toContain('@app.route("/healthz")');
+    expect(app).not.toContain('from config import');
+    expect(app).not.toContain('max_active_games');
+    expect(app).not.toContain('missing_api_key_payload');
+
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('def test_healthz');
+    expect(tests).not.toContain('client.post("/start"');
+    expect(tests).not.toContain('client.get("/modes"');
+    expect(tests).not.toContain('_games');
+  });
+
+  it('does not add start-route regression tests to generic Flask APIs', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-chat-regression-'));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'app = Flask(__name__)',
+      '@app.after_request',
+      'def add_security_headers(response):',
+      '    response.headers.setdefault("X-Content-Type-Options", "nosniff")',
+      '    return response',
+      '@app.route("/healthz")',
+      'def healthz():',
+      '    return jsonify({"ok": True})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+
+    const exec = new RuleBasedExecutor();
+    const result = await exec.runTask(
+      {
+        id: 'reg-chat',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add Flask regression tests',
+        description: 'Missing Flask regression tests',
+        acceptance_criteria: ['Regression tests match detected API routes'],
+        expected_changed_files: ['tests/test_regression.py'],
+        verification_commands: ['python3 -m pytest tests/test_regression.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_regression.py'), 'utf8');
+    expect(tests).toContain('test_regression_health_endpoint_keeps_security_headers');
+    expect(tests).not.toContain('client.post("/start"');
+    expect(tests).not.toContain('invalid_mode');
+    expect(tests).not.toContain('_games');
   });
 
   it('appends public deployment docs to an existing substantive README', async () => {
@@ -518,6 +719,75 @@ describe('RuleBasedExecutor', () => {
     expect(tests).toContain('app_module._games["existing"]');
   });
 
+  it('keeps generated Flask config compatible across guard and runtime hardening phases', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-guard-runtime-'));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import queue',
+      'import threading',
+      'import time',
+      'import uuid',
+      'from flask import Flask, jsonify, request',
+      'GAME_MODES = {"m6": {"name": "six"}}',
+      'DEFAULT_MODE = "m6"',
+      '_games = {}',
+      '_lock = threading.Lock()',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    body = request.get_json(silent=True) or {}',
+      '    mode = body.get("mode", DEFAULT_MODE)',
+      '    speed = body.get("speed", 1.0)',
+      '    try:',
+      '        speed = float(speed)',
+      '    except (TypeError, ValueError):',
+      '        speed = 1.0',
+      '    game_id = uuid.uuid4().hex[:8]',
+      '    q = queue.Queue()',
+      '    with _lock:',
+      '        _games[game_id] = {"queue": q, "last_seen": time.time()}',
+      '    return jsonify({"game_id": game_id, "mode": mode, "speed": speed})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0\n');
+
+    const exec = new RuleBasedExecutor();
+    const guard = await exec.runTask(
+      {
+        id: 'guard-runtime-1',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add Flask health and config guard',
+        description: 'Missing health check endpoint and config guard',
+        acceptance_criteria: ['guard is generated'],
+        expected_changed_files: ['app.py', 'config.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+    const harden = await exec.runTask(
+      {
+        id: 'guard-runtime-2',
+        iteration_id: 'iter2',
+        assigned_to: 'executor',
+        title: 'Harden Flask public runtime controls',
+        description: 'Missing industrial public runtime controls',
+        acceptance_criteria: ['runtime controls remain import-compatible'],
+        expected_changed_files: ['app.py', 'config.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter2', recent_events: [] },
+    );
+
+    expect(guard.status).toBe('completed');
+    expect(harden.status).toBe('completed');
+    const config = await fs.readFile(path.join(dir, 'config.py'), 'utf8');
+    expect(config).toContain('def require_api_key()');
+  });
+
   it('repairs generated Flask verification failures by refreshing industrial tests', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-repair-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -604,7 +874,7 @@ describe('RuleBasedExecutor', () => {
         id: 'repair1',
         iteration_id: 'iter1',
         assigned_to: 'executor',
-        title: 'Repair failing project verification',
+        title: 'Repair failed verification: python3 -m pytest tests/test_app.py -q',
         description: 'Test verification failed',
         acceptance_criteria: ['test command exits 0'],
         expected_changed_files: ['app.py', 'config.py', 'tests/test_app.py'],
@@ -621,11 +891,85 @@ describe('RuleBasedExecutor', () => {
     expect(tests).not.toContain('lambda: 0');
   });
 
+  it('repairs secret redaction source behavior without rewriting tests', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-secret-redaction-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import re',
+      '',
+      'def _redact_secrets(text: str) -> str:',
+      '    return re.sub(r"AKIA[0-9A-Za-z]{16}", "[AWS_KEY_REDACTED]", text)',
+      '',
+    ].join('\n'));
+    const testBody = [
+      'def test_redact_secrets_function():',
+      '    from app import _redact_secrets',
+      '    assert _redact_secrets("AKIAJLRMXVBXYZABCD") == "[AWS_KEY_REDACTED]"',
+      '',
+    ].join('\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), testBody);
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'repair-secret',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest tests/test_app.py -q',
+        description: 'test_redact_secrets_function failed for app._redact_secrets',
+        acceptance_criteria: ['the root cause is fixed in source, not tests'],
+        expected_changed_files: ['app.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(['app.py']);
+    expect(await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8')).toBe(testBody);
+  });
+
+  it('replaces no-op lint scripts when aligning Python package scripts', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-scripts-'));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'py-app',
+      scripts: {
+        test: 'echo ok',
+        build: 'echo ok',
+        lint: 'echo "No lint step configured"',
+      },
+    }));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'pytest>=8\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("ok")\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'scripts',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Align package scripts with Python project',
+        description: 'Node package scripts are misaligned with the Python project',
+        acceptance_criteria: ['package scripts validate Python sources'],
+        expected_changed_files: ['package.json'],
+        verification_commands: [],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.changed_files).toContain('package.json');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts.lint).toContain('python3 -c');
+    expect(pkg.scripts.lint).not.toContain('echo');
+  });
+
   it('adds Python dependency constraints and install docs', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-deps-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
     await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\n## Install\n\npip install -r requirements.txt\n');
-    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\nopenai>=1.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask\nopenai>=1.0.0\npytest>=8.0.0\n');
     await fs.writeFile(path.join(dir, 'tests', 'test_smoke.py'), 'def test_smoke():\n    assert True\n');
 
     const result = await new RuleBasedExecutor().runTask(
@@ -723,6 +1067,92 @@ describe('RuleBasedExecutor', () => {
     expect(docs.status).toBe('completed');
     expect(docs.changed_files).toContain('docs/architecture.md');
     expect(docs.changed_files).toContain('docs/operations.md');
+  });
+
+  it('hardens generic Flask JSON APIs with validation, logging and industrial tests', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-generic-hardening-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask\npytest>=8.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import os',
+      'from flask import Flask, jsonify, request',
+      '',
+      'app = Flask(__name__)',
+      '',
+      '@app.post("/summarize")',
+      'def summarize():',
+      '    token = os.environ.get("SERVICE_TOKEN", "")',
+      '    text = (request.get_json(silent=True) or {}).get("text", "")',
+      '    return jsonify({"token": token, "summary": text[:20]})',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'generic-flask-hardening',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Harden Flask public runtime controls',
+        description: 'Generic Flask API needs validation, logging and industrial tests',
+        acceptance_criteria: ['generic JSON routes validate input and log operational events'],
+        expected_changed_files: ['app.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
+    expect(app).toContain('logger.info("summarize request"');
+    expect(app).toContain('invalid_text');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('test_summarize_rejects_missing_text');
+    expect(tests).toContain('test_summarize_returns_summary');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
+  it('hardens Flask chat APIs with missing-message validation and tests', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-chat-hardening-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask\npytest>=8.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      '',
+      'app = Flask(__name__)',
+      '',
+      '@app.post("/chat")',
+      'def chat():',
+      '    body = request.get_json(silent=True) or {}',
+      '    message = body.get("message", "")',
+      '    return jsonify({"reply": message.upper()})',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'chat-flask-hardening',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Harden Flask public runtime controls',
+        description: 'Chat APIs need validation, logging and industrial tests',
+        acceptance_criteria: ['chat route validates missing messages and logs operational events'],
+        expected_changed_files: ['app.py', 'tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
+    expect(app).toContain('logger.info("chat request"');
+    expect(app).toContain('invalid_message');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('test_chat_rejects_missing_message');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
   });
 
   it('adds a social deduction rules engine and patches random tie resolution', async () => {
@@ -828,6 +1258,103 @@ describe('RuleBasedExecutor', () => {
     expect(doc).toContain('Documentation alone may guide work');
     expect(doc).toContain('Account identity');
     expect(doc).toContain('Ranked');
+  });
+
+  it('implements a tested social deduction product backbone for market parity gaps', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-werewolf-product-backbone-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Demo\n\nA 狼人杀 social deduction demo.\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'werewolf-demo', scripts: {} }, null, 2));
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'market-backbone',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Implement social deduction product backbone',
+        description: 'Social deduction product maturity is below mature market parity',
+        acceptance_criteria: ['product backbone has executable tests'],
+        expected_changed_files: [
+          'accounts.py',
+          'lobby.py',
+          'communication.py',
+          'moderation.py',
+          'ranking.py',
+          'history.py',
+          'roles_catalog.py',
+          'liveops.py',
+          'admin.py',
+          'host_controls.py',
+          'tests/test_product_backbone.py',
+          'docs/market-parity.md',
+          'package.json',
+        ],
+        verification_commands: ['python3 -m pytest tests/test_product_backbone.py -q'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('accounts.py');
+    expect(result.changed_files).toContain('lobby.py');
+    expect(result.changed_files).toContain('tests/test_product_backbone.py');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_product_backbone.py'), 'utf8');
+    expect(tests).toContain('test_account_lobby_and_host_flow');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts.test).toBe('python3 -m pytest -q');
+  });
+
+  it('integrates social product backbone into Flask app workflows', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-werewolf-integrate-backbone-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'app = Flask(__name__)',
+      '@app.route("/")',
+      'def index():',
+      '    return "Werewolf"',
+      '@app.route("/healthz")',
+      'def healthz():',
+      '    return jsonify({"status": "ok"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<main><h1>Werewolf</h1></main>\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'werewolf-demo', scripts: {} }, null, 2));
+    await fs.writeFile(path.join(dir, 'accounts.py'), socialBackboneFixture('class AccountStore:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'lobby.py'), socialBackboneFixture('class LobbyManager:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'communication.py'), socialBackboneFixture('class WebSocketPresenceHub:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'moderation.py'), socialBackboneFixture('class ModerationLog:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'ranking.py'), socialBackboneFixture('class RankedSeasonLeaderboard:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'history.py'), socialBackboneFixture('class SQLiteMatchHistory:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'roles_catalog.py'), 'ROLE_REGISTRY = {"werewolf": {}, "seer": {}, "witch": {}, "villager": {}}\nMODE_CATALOG = {"classic": []}\n');
+    await fs.writeFile(path.join(dir, 'liveops.py'), socialBackboneFixture('class LiveOpsStore:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'admin.py'), socialBackboneFixture('class AdminConsole:\n    pass\n'));
+    await fs.writeFile(path.join(dir, 'host_controls.py'), socialBackboneFixture('class HostControls:\n    pass\nclass RoomSettings:\n    pass\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'integrate-backbone',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Integrate social product backbone into app workflows',
+        description: 'Social product backbone modules are disconnected from the running app',
+        acceptance_criteria: ['Flask routes expose product workflows'],
+        expected_changed_files: ['app.py', 'templates/index.html', 'tests/test_product_integration.py', 'docs/market-parity.md'],
+        verification_commands: ['python3 -m pytest tests/test_product_integration.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('app.py');
+    expect(result.changed_files).toContain('tests/test_product_integration.py');
+    const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
+    expect(app).toContain('/product/lobby');
+    expect(app).toContain('AccountStore');
+    const template = await fs.readFile(path.join(dir, 'templates', 'index.html'), 'utf8');
+    expect(template).toContain('product-workflows');
   });
 
   it('writes a source-cited market research roadmap from the research report', async () => {
@@ -1003,6 +1530,9 @@ describe('RuleBasedExecutor', () => {
     expect(llmConfig).toContain('"qwen"');
     expect(llmConfig).toContain('redacted_config');
     expect(llmConfig).toContain('WW_ALLOW_SERVER_LLM_KEY_FALLBACK');
+    expect(llmConfig).toContain('"models": [');
+    expect(llmConfig).toContain('"source_url": "https://platform.minimax.io/');
+    expect(llmConfig).toContain('"source_kind": "official_docs_snapshot"');
     const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
     expect(app).toContain('resolve_llm_config(body)');
     expect(app).toContain('public_provider_config()');
@@ -1022,6 +1552,722 @@ describe('RuleBasedExecutor', () => {
     expect(appTests).toContain('json={"mode": "m6", "api_key": "test-key"}');
     const regressionTests = await fs.readFile(path.join(dir, 'tests', 'test_regression.py'), 'utf8');
     expect(regressionTests).toContain('json={"mode": "invalid_mode", "api_key": "test-key"}');
+  });
+
+  it('generalizes player-supplied LLM provider configuration to simple Flask chat demos', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-chat-provider-config-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\nopenai>=1.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import os',
+      'from flask import Flask, jsonify, render_template, request',
+      'from openai import OpenAI',
+      '',
+      'app = Flask(__name__)',
+      'client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))',
+      '',
+      '@app.get("/")',
+      'def index():',
+      '    return render_template("index.html")',
+      '',
+      '@app.post("/chat")',
+      'def chat():',
+      '    body = request.get_json(silent=True) or {}',
+      '    message = body.get("message", "")',
+      '    response = client.chat.completions.create(',
+      '        model=os.environ.get("WW_MODEL", "gpt-3.5-turbo"),',
+      '        messages=[{"role": "user", "content": message}],',
+      '    )',
+      '    return jsonify({"reply": response.choices[0].message.content})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), [
+      '<form id="chat">',
+      '  <select id="llmProvider">',
+      '    <option value="openai"></option>',
+      '  </select>',
+      '  <input id="message" placeholder="message">',
+      '  <button>Send</button>',
+      '</form>',
+      '<script>',
+      'document.querySelector("#chat").addEventListener("submit", async (event) => {',
+      '  event.preventDefault();',
+      '  await fetch("/chat", {',
+      '    method: "POST",',
+      '    headers: {"Content-Type": "application/json"},',
+      '    body: JSON.stringify({message: document.querySelector("#message").value})',
+      '  });',
+      '});',
+      '</script>',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-chat',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add player-supplied LLM provider configuration',
+        description: 'A generic chat demo should not require a server-wide OpenAI key',
+        acceptance_criteria: ['chat route uses per-request LLM provider config'],
+        expected_changed_files: ['app.py', 'templates/index.html', 'llm_config.py', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m py_compile app.py llm_config.py', 'python3 -m pytest tests/test_llm_config.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const app = await fs.readFile(path.join(dir, 'app.py'), 'utf8');
+    expect(app).toContain('@app.get("/config")');
+    expect(app).toContain('llm_config = resolve_llm_config(body)');
+    expect(app).toContain('OpenAI(');
+    expect(app).toContain('api_key=llm_config["config"]["api_key"]');
+    expect(app).toContain('base_url=llm_config["config"]["base_url"]');
+    expect(app).toContain('model=llm_config["config"]["model"]');
+    expect(app).not.toContain('client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))');
+    expect(app).not.toContain('model=os.environ.get("WW_MODEL"');
+    const html = await fs.readFile(path.join(dir, 'templates', 'index.html'), 'utf8');
+    expect(html).toContain('id="llmProvider"');
+    expect(html).toContain('id="llmModel"');
+    expect(html).toContain('id="llmBaseUrl"');
+    expect(html).toContain('id="llmApiKey"');
+    expect(html).toContain('provider: document.getElementById("llmProvider")');
+    expect(html).toContain('api_key: document.getElementById("llmApiKey")');
+    const categories = (await new AnalyzerAgent().fullAnalyze(dir)).gap.findings.map((finding) => finding.category);
+    expect(categories).not.toContain('missing_user_llm_provider_config');
+  });
+
+  it('repairs blank LLM provider select labels by aligning provider contract and template fallback', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-provider-select-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [',
+      '        {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "models": ["deepseek-chat"]},',
+      '        {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com", "models": ["gpt-4o-mini"]},',
+      '    ], "requires_player_key": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), [
+      '<select id="llmProvider"></select>',
+      '<input id="llmModel">',
+      '<input id="llmBaseUrl">',
+      '<script>',
+      'const $llmProvider = document.getElementById("llmProvider");',
+      'const providerPresets = cfg.providers;',
+      '$llmProvider.innerHTML = providerPresets.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`).join("");',
+      'const providerLabel = provider ? provider.label : ($llmProvider.value || "LLM");',
+      '</script>',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_llm_config.py'), [
+      'from llm_config import public_provider_config',
+      '',
+      'def test_public_provider_config_contains_supported_presets_without_keys():',
+      '    config = public_provider_config()',
+      '    assert config["providers"]',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-select',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair LLM provider select option labels',
+        description: 'LLM provider select renders empty option labels',
+        acceptance_criteria: ['provider labels are non-empty'],
+        expected_changed_files: ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('llm_config.py');
+    expect(result.changed_files).toContain('templates/index.html');
+    expect(result.changed_files).toContain('tests/test_llm_config.py');
+    const llmConfig = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    expect(llmConfig).toContain('"label": "DeepSeek"');
+    expect(llmConfig).toContain('"default_model": "deepseek-chat"');
+    const html = await fs.readFile(path.join(dir, 'templates', 'index.html'), 'utf8');
+    expect(html).toContain('p.label || p.name || p.id');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_llm_config.py'), 'utf8');
+    expect(tests).toContain('test_provider_presets_have_non_empty_ui_labels');
+  });
+
+  it('expands an existing LLM provider catalog without rewriting runtime contracts', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-provider-catalog-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'from __future__ import annotations',
+      '',
+      'import os',
+      'from typing import Any',
+      '',
+      'PROVIDER_PRESETS: dict[str, dict[str, str]] = {',
+      '    "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},',
+      '    "openai": {"label": "OpenAI", "base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini"},',
+      '}',
+      '',
+      'def public_provider_config() -> dict[str, Any]:',
+      '    return {"providers": [{"id": provider_id, **preset} for provider_id, preset in PROVIDER_PRESETS.items()], "requires_player_key": True}',
+      '',
+      'def resolve_llm_config(payload: dict[str, Any] | None, environ: dict[str, str] | None = None) -> dict[str, Any]:',
+      '    payload = payload or {}',
+      '    environ = environ if environ is not None else os.environ',
+      '    return {"ok": False, "error": "api_key_required"}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), [
+      '<select id="llmProvider"></select>',
+      '<script>',
+      'const providerPresets = cfg.providers;',
+      'document.getElementById("llmProvider").innerHTML = providerPresets.map(p => `<option>${p.label}</option>`).join("");',
+      '</script>',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_llm_config.py'), [
+      'from llm_config import public_provider_config, resolve_llm_config',
+      '',
+      'def test_missing_player_key_keeps_existing_api_contract():',
+      '    assert resolve_llm_config({}, environ={})["error"] == "api_key_required"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'APP_SENTINEL = "do-not-rewrite"\n');
+    await fs.writeFile(path.join(dir, 'player.py'), 'PLAYER_SENTINEL = "do-not-rewrite"\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), 'APP_TEST_SENTINEL = "do-not-rewrite"\n');
+    await fs.mkdir(path.join(dir, '.demo2project', 'research'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.demo2project', 'research', 'llm-model-catalog.json'), JSON.stringify({
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      providers: [
+        {
+          id: 'minimax',
+          label: 'MiniMax',
+          base_url: 'https://api.minimax.io/v1',
+          default_model: 'MiniMax-M2.7-official',
+          models: ['MiniMax-M2.7-official', 'MiniMax-M2.7-highspeed-official'],
+          source_url: 'https://platform.minimax.io/docs/guides/text-generation',
+          source_name: 'MiniMax official model docs',
+          source_kind: 'live_official_docs',
+          retrieved_at: new Date(0).toISOString(),
+        },
+      ],
+      warnings: [],
+    }, null, 2));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-catalog',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Expand player-selectable LLM provider catalog',
+        description: 'Provider presets omit MiniMax, Qwen and custom endpoints',
+        acceptance_criteria: ['catalog includes common providers without changing API contracts'],
+        expected_changed_files: ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('llm_config.py');
+    expect(result.changed_files).toContain('tests/test_llm_config.py');
+    expect(result.changed_files).not.toContain('app.py');
+    expect(result.changed_files).not.toContain('player.py');
+    expect(result.changed_files).not.toContain('tests/test_app.py');
+    const llmConfig = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    expect(llmConfig).toContain('"minimax"');
+    expect(llmConfig).toContain('"qwen"');
+    expect(llmConfig).toContain('"custom"');
+    expect(llmConfig).toContain('"MiniMax-M2.7-official"');
+    expect(llmConfig).toContain('"models": [');
+    expect(llmConfig).toContain('"source_url": "https://platform.minimax.io/docs/guides/text-generation"');
+    expect(llmConfig).toContain('"api_key_required"');
+    await expect(fs.readFile(path.join(dir, 'app.py'), 'utf8')).resolves.toBe('APP_SENTINEL = "do-not-rewrite"\n');
+    await expect(fs.readFile(path.join(dir, 'player.py'), 'utf8')).resolves.toBe('PLAYER_SENTINEL = "do-not-rewrite"\n');
+    await expect(fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8')).resolves.toBe('APP_TEST_SENTINEL = "do-not-rewrite"\n');
+  });
+
+  it('upgrades old generated LLM configs to expose official model metadata without stale qwen assertions', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-old-llm-catalog-upgrade-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.demo2project', 'research'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.demo2project', 'research', 'llm-model-catalog.json'), JSON.stringify({
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      providers: [
+        {
+          id: 'deepseek',
+          label: 'DeepSeek',
+          base_url: 'https://api.deepseek.com',
+          default_model: 'deepseek-v4-flash',
+          models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+          source_url: 'https://api-docs.deepseek.com/api/list-models',
+          source_name: 'DeepSeek API official model docs',
+          source_kind: 'live_official_docs',
+          retrieved_at: new Date(0).toISOString(),
+        },
+        {
+          id: 'qwen',
+          label: 'Qwen',
+          base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+          default_model: 'qwen3.6-plus',
+          models: ['qwen3.6-plus', 'qwen3.6-max-preview'],
+          source_url: 'https://www.alibabacloud.com/help/en/model-studio/text-generation-model',
+          source_name: 'Alibaba Cloud Model Studio official model docs',
+          source_kind: 'live_official_docs',
+          retrieved_at: new Date(0).toISOString(),
+        },
+      ],
+      warnings: [],
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'from __future__ import annotations',
+      '',
+      'import os',
+      'from typing import Any',
+      '',
+      '',
+      'PROVIDER_PRESETS: dict[str, dict[str, Any]] = {',
+      '    "deepseek": {',
+      '        "label": "DeepSeek",',
+      '        "base_url": "https://api.deepseek.com",',
+      '        "default_model": "deepseek-v4-flash",',
+      '    },',
+      '    "qwen": {',
+      '        "label": "Qwen",',
+      '        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",',
+      '        "default_model": "qwen-plus",',
+      '    },',
+      '    "minimax": {',
+      '        "label": "MiniMax",',
+      '        "base_url": "https://api.minimax.io/v1",',
+      '        "default_model": "MiniMax-M2.7",',
+      '    },',
+      '    "openai": {',
+      '        "label": "OpenAI compatible",',
+      '        "base_url": "https://api.openai.com/v1",',
+      '        "default_model": "gpt-4o-mini",',
+      '    },',
+      '    "custom": {',
+      '        "label": "Custom OpenAI-compatible endpoint",',
+      '        "base_url": "",',
+      '        "default_model": "",',
+      '    },',
+      '}',
+      '',
+      '',
+      'def public_provider_config() -> dict[str, Any]:',
+      '    return {',
+      '        "providers": [',
+      '            {',
+      '                "id": provider_id,',
+      '                "label": preset["label"],',
+      '                "base_url": preset["base_url"],',
+      '                "default_model": preset["default_model"],',
+      '            }',
+      '            for provider_id, preset in PROVIDER_PRESETS.items()',
+      '        ],',
+      '        "requires_player_key": True,',
+      '    }',
+      '',
+      '',
+      'def resolve_llm_config(payload: dict[str, Any] | None, environ: dict[str, str] | None = None) -> dict[str, Any]:',
+      '    payload = payload or {}',
+      '    provider = str(payload.get("provider") or "deepseek").strip().lower()',
+      '    preset = PROVIDER_PRESETS[provider]',
+      '    api_key = str(payload.get("api_key") or "").strip()',
+      '    if not api_key:',
+      '        return {"ok": False, "error": "api_key_required", "providers": public_provider_config()}',
+      '    return {"ok": True, "config": {"provider": provider, "api_key": api_key, "base_url": preset["base_url"], "model": str(payload.get("model") or preset["default_model"]).strip()}}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<select id="llmProvider"></select><input id="llmModel">\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_llm_config.py'), [
+      'from llm_config import public_provider_config, resolve_llm_config',
+      '',
+      '',
+      'def test_resolve_supports_qwen_preset():',
+      '    result = resolve_llm_config({"provider": "qwen", "api_key": "qwen-key"}, environ={})',
+      '    assert result["ok"] is True',
+      '    assert "dashscope" in result["config"]["base_url"]',
+      '    assert result["config"]["model"] == "qwen-plus"',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'old-llm-catalog-upgrade',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Expand player-selectable LLM provider catalog',
+        description: 'Existing generated LLM config needs official model choices',
+        acceptance_criteria: ['public provider config exposes official model choices'],
+        expected_changed_files: ['llm_config.py', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const llmConfig = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    expect(llmConfig.match(/"default_model": "qwen3\.6-plus"/g)?.length).toBe(1);
+    expect(llmConfig).toContain('"models": list(preset.get("models", []))');
+    expect(llmConfig).toContain('"source_url": preset.get("source_url", "")');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_llm_config.py'), 'utf8');
+    expect(tests).toContain('providers = {provider["id"]: provider for provider in public_provider_config()["providers"]}');
+    expect(tests).toContain('assert result["config"]["model"] == providers["qwen"]["default_model"]');
+    expect(tests).not.toContain('== "qwen-plus"');
+  });
+
+  it('repairs LLM config compatibility regressions without replacing existing app behavior', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-contract-repair-'));
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'from llm_config import resolve_llm_config',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    llm_config = resolve_llm_config(request.get_json(silent=True) or {})',
+      '    if not llm_config["ok"]:',
+      '        return jsonify({"error": llm_config["error"]}), 400',
+      '    return jsonify({"ok": True})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'from __future__ import annotations',
+      '',
+      'import os',
+      'from typing import Any',
+      '',
+      'PROVIDER_PRESETS: dict[str, dict[str, str]] = {',
+      '    "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},',
+      '}',
+      '',
+      'def public_provider_config() -> dict[str, Any]:',
+      '    return {"providers": [{"id": provider_id, **preset} for provider_id, preset in PROVIDER_PRESETS.items()], "requires_player_key": True}',
+      '',
+      'def resolve_llm_config(payload: dict[str, Any] | None, environ: dict[str, str] | None = None) -> dict[str, Any]:',
+      '    payload = payload or {}',
+      '    environ = environ if environ is not None else os.environ',
+      '    api_key = str(payload.get("api_key") or "").strip()',
+      '    allow_server_fallback = str(environ.get("WW_ALLOW_SERVER_LLM_KEY_FALLBACK", "")).lower() in {"1", "true", "yes", "on"}',
+      '    if not api_key and allow_server_fallback:',
+      '        api_key = environ.get("DEEPSEEK_API_KEY") or environ.get("OPENAI_API_KEY") or ""',
+      '    if not api_key:',
+      '        return {"ok": False, "error": "missing_api_key", "providers": public_provider_config()}',
+      '    return {"ok": True, "config": {"api_key": api_key}}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_llm_config.py'), [
+      'from llm_config import resolve_llm_config',
+      '',
+      'def test_missing_key_error_matches_api_contract():',
+      '    assert resolve_llm_config({}, environ={})["error"] == "missing_api_key"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'scripts', 'api_contract_check.py'), 'EXPECTED = "api_key_required"\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'config_contract_check.py'), [
+      'import pathlib, re',
+      'ROOT = pathlib.Path(__file__).resolve().parents[1]',
+      String.raw`ENV_PATTERN = re.compile(r"""os\.environ\.(?:get|__getitem__)\(\s*["']([A-Z0-9_]+)["']""")`,
+      'source = "\\n".join(path.read_text() for path in ROOT.rglob("*.py"))',
+      'found = set(ENV_PATTERN.findall(source))',
+      'assert "WW_ALLOW_SERVER_LLM_KEY_FALLBACK" in found',
+      'assert "DEEPSEEK_API_KEY" in found',
+      'assert "OPENAI_API_KEY" in found',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-contract-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failing project verification',
+        description: 'api contract expected api_key_required and config contract expected env vars in source',
+        acceptance_criteria: ['existing API/config contracts are restored'],
+        expected_changed_files: ['llm_config.py', 'tests/test_llm_config.py'],
+        verification_commands: [
+          'python3 -m pytest tests/test_llm_config.py -q',
+          'python3 scripts/config_contract_check.py',
+        ],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(expect.arrayContaining(['llm_config.py', 'tests/test_llm_config.py']));
+    expect(result.changed_files).not.toContain('app.py');
+    const llmConfig = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    expect(llmConfig).toContain('"api_key_required"');
+    expect(llmConfig).toContain('os.environ.get("WW_ALLOW_SERVER_LLM_KEY_FALLBACK"');
+    expect(llmConfig).toContain('os.environ.get("DEEPSEEK_API_KEY"');
+    expect(llmConfig).toContain('os.environ.get("OPENAI_API_KEY"');
+  });
+
+  it('repairs stale Flask tests after player-supplied LLM keys become accepted', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-player-key-test-repair-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    body = request.get_json(silent=True) or {}',
+      '    if body.get("mode") == "invalid_mode":',
+      '        return jsonify({"error": "invalid_mode"}), 400',
+      '    if not body.get("api_key"):',
+      '        return jsonify({"error": "api_key_required"}), 400',
+      '    return jsonify({"game_id": "game-1"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def resolve_llm_config(payload, environ=None):',
+      '    return {"ok": bool((payload or {}).get("api_key"))}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'import pytest',
+      '',
+      '@pytest.fixture()',
+      'def client():',
+      '    from app import app',
+      '    app.config.update(TESTING=True)',
+      '    with app.test_client() as client:',
+      '        yield client',
+      '',
+      'def test_start_invalid_mode_still_returns_400_with_player_key(client):',
+      '    response = client.post("/start", json={"mode": "invalid_mode", "api_key": "test-key"})',
+      '    assert response.status_code == 200',
+      '    assert response.get_json()["error"] == "invalid_mode"',
+      '',
+      'def test_start_accepts_valid_speed_values(client):',
+      '    response = client.post("/start", json={"mode": "m6", "speed": 0.1, "api_key": "test-key"})',
+      '    assert response.status_code == 400',
+      '    data = response.get_json()',
+      '    assert data["error"] == "api_key_required", f"Expected api_key_required, got {data.get(\'error\')}"',
+      '',
+      '    response = client.post("/start", json={"mode": "m6", "speed": 3.0, "api_key": "test-key"})',
+      '    assert response.status_code == 400',
+      '    data = response.get_json()',
+      '    assert data["error"] == "api_key_required"',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'player-key-test-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest tests/test_app.py -q',
+        description: 'test_start_accepts_valid_speed_values expected api_key_required even though request supplies api_key',
+        acceptance_criteria: ['tests reflect player-supplied API key acceptance'],
+        expected_changed_files: ['tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(['tests/test_app.py']);
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('assert response.status_code == 200');
+    expect(tests).toContain('assert "game_id" in data');
+    expect(tests).toContain('assert response.status_code == 400');
+    expect(tests).toContain('assert response.get_json()["error"] == "invalid_mode"');
+    expect(tests).not.toContain('Expected api_key_required');
+  });
+
+  it('keeps LLM config compatibility repair idempotent', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-contract-idempotent-'));
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'from __future__ import annotations',
+      '',
+      'import os',
+      '',
+      'def resolve_llm_config(payload, environ=None):',
+      '    payload = payload or {}',
+      '    if environ is None:',
+      '        environ = os.environ',
+      '    api_key = str(payload.get("api_key") or "").strip()',
+      '    fallback_flag = (',
+      '        os.environ.get("WW_ALLOW_SERVER_LLM_KEY_FALLBACK", "")',
+      '        if environ is os.environ',
+      '        else environ.get("WW_ALLOW_SERVER_LLM_KEY_FALLBACK", "")',
+      '    )',
+      '    allow_server_fallback = str(fallback_flag).lower() in {"1", "true", "yes", "on"}',
+      '    if not api_key and allow_server_fallback:',
+      '        if environ is os.environ:',
+      '            api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""',
+      '        else:',
+      '            api_key = environ.get("DEEPSEEK_API_KEY") or environ.get("OPENAI_API_KEY") or ""',
+      '    if not api_key:',
+      '        return {"ok": False, "error": "api_key_required"}',
+      '    return {"ok": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'scripts', 'api_contract_check.py'), 'EXPECTED = "api_key_required"\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'config_contract_check.py'), 'EXPECTED = "WW_ALLOW_SERVER_LLM_KEY_FALLBACK"\n');
+
+    const before = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-contract-idempotent',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failing project verification',
+        description: 'LLM config repair should not corrupt an already repaired env fallback block',
+        acceptance_criteria: ['repair is idempotent'],
+        expected_changed_files: ['llm_config.py'],
+        verification_commands: ['python3 -m py_compile llm_config.py'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    await expect(fs.readFile(path.join(dir, 'llm_config.py'), 'utf8')).resolves.toBe(before);
+  });
+
+  it('repairs over-broad player-key validation status assertions after missing-key tests are gone', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-player-key-validation-repair-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    body = request.get_json(silent=True) or {}',
+      '    if body.get("mode") == "invalid_mode":',
+      '        return jsonify({"error": "invalid_mode"}), 400',
+      '    return jsonify({"game_id": "game-1"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), 'def resolve_llm_config(payload, environ=None): return {"ok": bool((payload or {}).get("api_key"))}\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'import pytest',
+      '',
+      '@pytest.fixture()',
+      'def client():',
+      '    from app import app',
+      '    app.config.update(TESTING=True)',
+      '    with app.test_client() as client:',
+      '        yield client',
+      '',
+      'def test_start_invalid_mode_returns_400(client):',
+      '    response = client.post("/start", json={"mode": "invalid_mode", "api_key": "test-key"})',
+      '    assert response.status_code == 200',
+      '    assert response.get_json()["error"] == "invalid_mode"',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'player-key-validation-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest tests/test_app.py -q',
+        description: 'validation tests were over-broadly changed to 200 after player-supplied key support',
+        acceptance_criteria: ['validation errors still assert 400'],
+        expected_changed_files: ['tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('assert response.status_code == 400');
+  });
+
+  it('repairs API tests that pass while leaking background LLM authentication errors', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-bg-llm-auth-repair-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import threading',
+      'from flask import Flask, jsonify, request',
+      'class GameMaster:',
+      '    def run(self):',
+      '        raise RuntimeError("network call should not run in API tests")',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    body = request.get_json(silent=True) or {}',
+      '    if not body.get("api_key"):',
+      '        return jsonify({"error": "api_key_required"}), 400',
+      '    game_id = "game-1"',
+      '    def run_game():',
+      '        GameMaster().run()',
+      '    threading.Thread(target=run_game, daemon=True).start()',
+      '    return jsonify({"game_id": game_id})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'import pytest',
+      '',
+      '@pytest.fixture()',
+      'def client():',
+      '    from app import app',
+      '    app.config.update(TESTING=True)',
+      '    with app.test_client() as client:',
+      '        yield client',
+      '',
+      'def test_start_accepts_valid_speed_values(client):',
+      '    """Valid speed should be accepted with player key."""',
+      '    response = client.post("/start", json={"mode": "m6", "speed": 0.1, "api_key": "test-key"})',
+      '    assert response.status_code == 200',
+      '    data = response.get_json()',
+      '    assert "game_id" in data',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'bg-llm-auth-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest -q',
+        description: 'pytest exited 0 but emitted game thread failed AuthenticationError',
+        acceptance_criteria: ['API tests do not trigger background LLM calls'],
+        expected_changed_files: ['tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('def test_start_accepts_valid_speed_values(client, monkeypatch):');
+    expect(tests).toContain('class _NoopThread:');
+    expect(tests).toContain('monkeypatch.setattr("app.threading.Thread", _NoopThread)');
+    expect(tests).toContain('monkeypatch.setattr("app.GameMaster.run", lambda self: None)');
+    expect(tests.indexOf('monkeypatch.setattr("app.GameMaster.run"')).toBeLessThan(tests.indexOf('client.post("/start"'));
   });
 
   it('adds a UI product verification harness for pure UI demos', async () => {
@@ -1092,6 +2338,103 @@ describe('RuleBasedExecutor', () => {
     expect(spec).toContain('screenshot.byteLength');
   });
 
+  it('adds missing build and test scripts when creating a UI product harness', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-ui-scripts-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'ui-script-demo',
+      private: true,
+      type: 'module',
+      dependencies: { vue: '^3.5.0' },
+      scripts: { start: 'vite' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'index.html'), '<div id="app"></div><script type="module" src="/src/App.vue"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'App.vue'), [
+      '<template>',
+      '  <main aria-label="Demo app"><h1>Demo</h1><p>Loading state ready.</p></main>',
+      '</template>',
+      '<style>',
+      'main { display: grid; gap: 1rem; }',
+      '@media (max-width: 640px) { main { padding: 1rem; } }',
+      '</style>',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'ui-scripts',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add UI product verification harness',
+        description: 'Pure UI demos need browser-level validation',
+        acceptance_criteria: ['ui product check script exits 0'],
+        expected_changed_files: ['scripts/ui-product-check.mjs', 'package.json', 'vite.config.js'],
+        verification_commands: ['node scripts/ui-product-check.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts.test).toBe('node scripts/ui-product-check.mjs');
+    expect(pkg.scripts.build).toBe('node scripts/ui-product-check.mjs');
+    expect(pkg.scripts['ui:check']).toBe('node scripts/ui-product-check.mjs');
+    expect(pkg.devDependencies.vite).toBeTruthy();
+    await expect(fs.readFile(path.join(dir, 'vite.config.js'), 'utf8')).resolves.toContain('defineConfig');
+  });
+
+  it('adds Vue UI product state surfaces during interaction hardening', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-ui-state-hardening-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'src', 'App.vue'), [
+      '<template>',
+      '  <main>',
+      '    <section id="about" class="flip" @mouseenter="flip = true" @mouseleave="flip = false">',
+      '      <h1>Demo UI</h1>',
+      '      <p>This is just a BETA.</p>',
+      '    </section>',
+      '  </main>',
+      '</template>',
+      '',
+      '<script setup>',
+      "import { ref } from 'vue';",
+      'const flip = ref(false);',
+      '</script>',
+      '',
+      '<style>',
+      'body { cursor: none; }',
+      'main { display: grid; }',
+      '</style>',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'ui-state-hardening',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Harden UI interaction, accessibility and polish',
+        description: 'Vue UI lacks keyboard/touch operation and explicit product states',
+        acceptance_criteria: ['state surface exists', 'keyboard and touch handlers exist'],
+        expected_changed_files: ['src/App.vue'],
+        verification_commands: ['test -s src/App.vue'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const app = await fs.readFile(path.join(dir, 'src', 'App.vue'), 'utf8');
+    expect(app).toContain('role="status"');
+    expect(app).toContain('errorMessage');
+    expect(app).toContain('isEmpty');
+    expect(app).toContain(':disabled="isLoading"');
+    expect(app).toContain('@keydown.enter.prevent');
+  });
+
   it('adds API, config, data and worker contract harnesses', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-contract-harnesses-'));
     await fs.mkdir(path.join(dir, 'src'), { recursive: true });
@@ -1154,6 +2497,356 @@ describe('RuleBasedExecutor', () => {
     expect(await fs.readFile(path.join(dir, '.env.example'), 'utf8')).toContain('SERVICE_TOKEN=');
   });
 
+  it('keeps config contract harness valid when no env vars remain after earlier repairs', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-config-no-env-'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'def ok():\n    return True\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'config-no-env',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add config contract harness',
+        description: 'Config harness should explicitly pass when no env vars remain',
+        acceptance_criteria: ['config contract exists'],
+        expected_changed_files: ['docs/config-contract.md', 'scripts/config-contract-check.mjs', '.env.example', 'package.json'],
+        verification_commands: ['node scripts/config-contract-check.mjs'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('.env.example');
+    expect(await fs.readFile(path.join(dir, '.env.example'), 'utf8')).toContain('# Runtime configuration');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
+  it('adds a generalized surface contract matrix for specialized demo surfaces', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-surface-contract-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: 'Extension Demo',
+      version: '0.1.0',
+      action: { default_popup: 'popup.html' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'popup.html'), '<button id="run">Run</button><script src="src/popup.js"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'popup.js'), 'document.getElementById("run").addEventListener("click", () => console.log("demo"));\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'surface-contract',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add demo surface contract matrix',
+        description: 'Specialized demo surfaces need a productization map',
+        acceptance_criteria: ['surface contract matrix exists'],
+        expected_changed_files: ['docs/productization-surface-map.md', 'scripts/surface-contract-check.mjs', 'package.json'],
+        verification_commands: ['node scripts/surface-contract-check.mjs'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('docs/productization-surface-map.md');
+    expect(result.changed_files).toContain('scripts/surface-contract-check.mjs');
+    expect(result.changed_files).toContain('package.json');
+    const doc = await fs.readFile(path.join(dir, 'docs', 'productization-surface-map.md'), 'utf8');
+    expect(doc).toContain('browser_extension');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts['surface:contract-check']).toBe('node scripts/surface-contract-check.mjs');
+  });
+
+  it('adds dedicated contract harnesses for extension, notebook, mobile and desktop demos', async () => {
+    const executor = new RuleBasedExecutor();
+    const cases = [
+      {
+        prefix: 'extension',
+        title: 'Add browser extension contract harness',
+        command: 'node scripts/browser-extension-contract-check.mjs',
+        docs: 'docs/browser-extension-contract.md',
+        script: 'scripts/browser-extension-contract-check.mjs',
+        scriptKey: 'extension:contract-check',
+        setup: async (dir: string) => {
+          await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({
+            manifest_version: 3,
+            name: 'Extension Demo',
+            version: '0.1.0',
+            action: { default_popup: 'popup.html' },
+          }, null, 2));
+          await fs.writeFile(path.join(dir, 'popup.html'), '<main>Popup</main>\n');
+        },
+      },
+      {
+        prefix: 'notebook',
+        title: 'Add notebook reproducibility contract harness',
+        command: 'node scripts/notebook-contract-check.mjs',
+        docs: 'docs/notebook-contract.md',
+        script: 'scripts/notebook-contract-check.mjs',
+        scriptKey: 'notebook:contract-check',
+        setup: async (dir: string) => {
+          await fs.writeFile(path.join(dir, 'analysis.ipynb'), JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 2));
+        },
+      },
+      {
+        prefix: 'mobile',
+        title: 'Add mobile app contract harness',
+        command: 'node scripts/mobile-contract-check.mjs',
+        docs: 'docs/mobile-contract.md',
+        script: 'scripts/mobile-contract-check.mjs',
+        scriptKey: 'mobile:contract-check',
+        setup: async (dir: string) => {
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { expo: '^54.0.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'app.json'), JSON.stringify({ expo: { name: 'Mobile Demo', slug: 'mobile-demo' } }, null, 2));
+        },
+      },
+      {
+        prefix: 'desktop',
+        title: 'Add desktop app contract harness',
+        command: 'node scripts/desktop-contract-check.mjs',
+        docs: 'docs/desktop-contract.md',
+        script: 'scripts/desktop-contract-check.mjs',
+        scriptKey: 'desktop:contract-check',
+        setup: async (dir: string) => {
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { electron: '^39.0.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'electron.js'), 'console.log("desktop shell");\n');
+        },
+      },
+    ];
+
+    for (const c of cases) {
+      const dir = await fs.mkdtemp(path.join(tmpdir(), `d2p-rbe-${c.prefix}-contract-`));
+      await c.setup(dir);
+      const result = await executor.runTask(
+        {
+          id: `${c.prefix}-contract`,
+          iteration_id: 'iter1',
+          assigned_to: 'executor',
+          title: c.title,
+          description: c.title,
+          acceptance_criteria: ['contract harness exists'],
+          expected_changed_files: [c.docs, c.script, 'package.json'],
+          verification_commands: [c.command],
+          priority: 'medium',
+          status: 'pending',
+        },
+        { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+      );
+
+      expect(result.status).toBe('completed');
+      expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+      expect(result.changed_files).toContain(c.docs);
+      expect(result.changed_files).toContain(c.script);
+      const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+      expect(pkg.scripts[c.scriptKey]).toBe(c.command);
+    }
+  });
+
+  it('adds dedicated contract harnesses for game, 3D, ML and media demos', async () => {
+    const executor = new RuleBasedExecutor();
+    const cases = [
+      {
+        prefix: 'game',
+        title: 'Add game runtime contract harness',
+        command: 'node scripts/game-contract-check.mjs',
+        docs: 'docs/game-contract.md',
+        script: 'scripts/game-contract-check.mjs',
+        scriptKey: 'game:contract-check',
+        setup: async (dir: string) => {
+          await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { phaser: '^3.90.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'src', 'game.js'), 'const game = new Phaser.Game({ scene });\nrequestAnimationFrame(() => game.step?.());\n');
+        },
+      },
+      {
+        prefix: '3d',
+        title: 'Add 3D scene contract harness',
+        command: 'node scripts/3d-scene-contract-check.mjs',
+        docs: 'docs/3d-scene-contract.md',
+        script: 'scripts/3d-scene-contract-check.mjs',
+        scriptKey: '3d:contract-check',
+        setup: async (dir: string) => {
+          await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { three: '^0.180.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'src', 'scene.js'), 'const renderer = new THREE.WebGLRenderer();\nrenderer.setAnimationLoop(render);\n');
+        },
+      },
+      {
+        prefix: 'ml',
+        title: 'Add ML model contract harness',
+        command: 'node scripts/ml-model-contract-check.mjs',
+        docs: 'docs/ml-model-contract.md',
+        script: 'scripts/ml-model-contract-check.mjs',
+        scriptKey: 'ml:contract-check',
+        setup: async (dir: string) => {
+          await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { 'onnxruntime-web': '^1.23.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'src', 'model.js'), 'const session = await ort.InferenceSession.create("model.onnx");\n');
+          await fs.writeFile(path.join(dir, 'model.onnx'), 'demo-model');
+        },
+      },
+      {
+        prefix: 'media',
+        title: 'Add media pipeline contract harness',
+        command: 'node scripts/media-pipeline-contract-check.mjs',
+        docs: 'docs/media-pipeline-contract.md',
+        script: 'scripts/media-pipeline-contract-check.mjs',
+        scriptKey: 'media:contract-check',
+        setup: async (dir: string) => {
+          await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+          await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { sharp: '^0.34.0' } }, null, 2));
+          await fs.writeFile(path.join(dir, 'src', 'process-media.js'), 'await sharp(input).resize(256).toFile(output);\n');
+        },
+      },
+    ];
+
+    for (const c of cases) {
+      const dir = await fs.mkdtemp(path.join(tmpdir(), `d2p-rbe-${c.prefix}-contract-`));
+      await c.setup(dir);
+      const result = await executor.runTask(
+        {
+          id: `${c.prefix}-contract`,
+          iteration_id: 'iter1',
+          assigned_to: 'executor',
+          title: c.title,
+          description: c.title,
+          acceptance_criteria: ['contract harness exists'],
+          expected_changed_files: [c.docs, c.script, 'package.json'],
+          verification_commands: [c.command],
+          priority: 'medium',
+          status: 'pending',
+        },
+        { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+      );
+
+      expect(result.status).toBe('completed');
+      expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+      expect(result.changed_files).toContain(c.docs);
+      expect(result.changed_files).toContain(c.script);
+      const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+      expect(pkg.scripts[c.scriptKey]).toBe(c.command);
+    }
+  });
+
+  it('adds runnable product entries for visual and mobile specialized demos', async () => {
+    const executor = new RuleBasedExecutor();
+    const gameDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-game-runtime-'));
+    await fs.mkdir(path.join(gameDir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(gameDir, 'package.json'), JSON.stringify({
+      name: 'game-runtime-demo',
+      type: 'module',
+      dependencies: { phaser: '^3.90.0' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(gameDir, 'src', 'game.js'), 'new Phaser.Game({ scene: { create() {} } });\n');
+
+    const gameResult = await executor.runTask(
+      {
+        id: 'game-runtime',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add product runtime entry',
+        description: 'Specialized product surface has no runnable entry',
+        acceptance_criteria: ['start script launches the game surface'],
+        expected_changed_files: ['index.html', 'src/product-runtime.mjs', 'scripts/product-runtime-check.mjs', 'package.json'],
+        verification_commands: ['node scripts/product-runtime-check.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: gameDir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(gameResult.status).toBe('completed');
+    expect(gameResult.changed_files).toContain('index.html');
+    expect(gameResult.changed_files).toContain('src/product-runtime.mjs');
+    expect(gameResult.changed_files).toContain('scripts/product-runtime-check.mjs');
+    const gamePkg = JSON.parse(await fs.readFile(path.join(gameDir, 'package.json'), 'utf8'));
+    expect(gamePkg.scripts.start).toContain('vite');
+    expect(gamePkg.devDependencies.vite).toBeTruthy();
+    expect(await fs.readFile(path.join(gameDir, 'src', 'product-runtime.mjs'), 'utf8')).toContain('globalThis.Phaser');
+    expect(gameResult.verification_evidence.every((e) => e.passed)).toBe(true);
+
+    const mobileDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-mobile-runtime-'));
+    await fs.writeFile(path.join(mobileDir, 'app.json'), JSON.stringify({ expo: { name: 'Mobile Demo', slug: 'mobile-demo' } }, null, 2));
+    await fs.writeFile(path.join(mobileDir, 'package.json'), JSON.stringify({
+      name: 'mobile-runtime-demo',
+      dependencies: { expo: '^54.0.0', 'react-native': '^0.81.0' },
+      scripts: { test: 'node --test', build: 'node --check src/product-core.mjs' },
+    }, null, 2));
+
+    const mobileResult = await executor.runTask(
+      {
+        id: 'mobile-runtime',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add product runtime entry',
+        description: 'Mobile product surface has no runnable entry',
+        acceptance_criteria: ['start script launches Expo'],
+        expected_changed_files: ['App.js', 'scripts/product-runtime-check.mjs', 'package.json'],
+        verification_commands: ['node scripts/product-runtime-check.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: mobileDir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(mobileResult.status).toBe('completed');
+    expect(mobileResult.changed_files).toContain('App.js');
+    const mobilePkg = JSON.parse(await fs.readFile(path.join(mobileDir, 'package.json'), 'utf8'));
+    expect(mobilePkg.scripts.start).toBe('expo start');
+    expect(await fs.readFile(path.join(mobileDir, 'App.js'), 'utf8')).toContain('react-native');
+    expect(mobileResult.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
+  it('adds runnable CLI product entries for ML and media pipeline demos', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-pipeline-runtime-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'pipeline-runtime-demo',
+      type: 'module',
+      dependencies: { sharp: '^0.34.0' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'process-media.js'), 'import sharp from "sharp"; export async function resize(input, output) { return sharp(input).resize(128).toFile(output); }\n');
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function runWorkflow(name = "status") { return { ok: true, name }; }\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'surface-contract-check.mjs'), 'const detectorPattern = /THREE\\.WebGLRenderer|SceneLoader|webgl/;\nconsole.log(detectorPattern);\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'pipeline-runtime',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add product runtime entry',
+        description: 'ML/media product surface has no runnable entry',
+        acceptance_criteria: ['bin/product.js runs the product core'],
+        expected_changed_files: ['bin/product.js', 'scripts/product-runtime-check.mjs', 'package.json'],
+        verification_commands: ['node scripts/product-runtime-check.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('bin/product.js');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.bin['pipeline-runtime-demo']).toBe('./bin/product.js');
+    expect(pkg.scripts.start).toContain('bin/product.js');
+    expect(await fs.readFile(path.join(dir, 'bin', 'product.js'), 'utf8')).toContain('runWorkflow');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
   it('keeps Python validation scripts when adding cross-runtime contract harnesses', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-contract-harness-'));
     await fs.writeFile(path.join(dir, 'app.py'), [
@@ -1203,6 +2896,9 @@ describe('RuleBasedExecutor', () => {
       '  <nav class="nav"><a href="#about">About</a></nav>',
       '  <section class="panel flip-panel" id="about" @mouseenter="flipOn(\'about\')" @mouseleave="flipOff(\'about\')">',
       '    <p>Welcome to my website.</p>',
+      '  </section>',
+      '  <section class="flip" id="service" @mouseenter="service = true" @mouseleave="service = false">',
+      '    <p>This is just a BETA.</p>',
       '  </section>',
       '</template>',
       '<script setup>',
@@ -1277,6 +2973,10 @@ describe('RuleBasedExecutor', () => {
     expect(app).toContain('tabindex="0"');
     expect(app).toContain('@focus="flipOn(\'about\')"');
     expect(app).toContain('@touchstart.passive="flipOn(\'about\')"');
+    expect(app).toContain('@focus="service = true"');
+    expect(app).toContain('@blur="service = false"');
+    expect(app).toContain('@touchstart.passive="service = true"');
+    expect(app).toContain('@keydown.enter.prevent="service = true"');
     expect(app).toContain('const scheduleUpdate =');
     expect(app).toContain('requestAnimationFrame');
     expect(app).not.toContain("document.body.style.cursor = 'none'");

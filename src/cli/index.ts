@@ -35,6 +35,7 @@ import { workspaceReport } from './commands/workspaceReport.js';
 import { taxonomyList, taxonomyExplain } from './commands/taxonomy.js';
 import { redactTest } from './commands/redactTest.js';
 import { researchCmd } from './commands/research.js';
+import { modelsRefreshCmd } from './commands/modelCatalog.js';
 // --- Phase 8 ---
 import { doctor as doctorCmd } from './commands/doctor.js';
 import { nextCmd } from './commands/next.js';
@@ -138,10 +139,11 @@ Core (read-only or low-risk):
 Research:
   research --project <path> --domain <domain> --web
                                                  Controlled competitor/product research report
+  models:refresh --project <path> --web          Refresh official LLM provider model catalog
 
 Iteration:
   plan        --project <path>                   IterationPlan (no writes)
-  iterate     --project <path>                   Iteration round (writes per autonomy level)
+  iterate     --project <path> [--web]           Iteration round; --web refreshes official LLM model docs
   autonomy:run --project <path>                  Long-horizon autonomous session
 
 Reports:
@@ -403,6 +405,8 @@ async function main(): Promise<number> {
       return redactTest(args.flags);
     case 'research':
       return researchCmd(args.flags);
+    case 'models:refresh':
+      return modelsRefreshCmd(args.flags);
     // --- Phase 6 ---
     case 'autonomy:policy':
       return autonomyPolicyCmd(args.flags);

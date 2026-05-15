@@ -25,7 +25,7 @@ const task: AgentTask = {
 };
 
 describe('MiniMaxProvider', () => {
-  it('calls MiniMax M2.7 and applies returned file edits before verification', async () => {
+  it('defaults to MiniMax-M2.7-highspeed and applies returned file edits before verification', async () => {
     const dir = await tmp();
     let observedUrl = '';
     let observedInit: RequestInit | undefined;
@@ -64,7 +64,7 @@ describe('MiniMaxProvider', () => {
     expect(observedUrl).toBe('https://api.minimaxi.com/v1/chat/completions');
     expect((observedInit?.headers as Record<string, string>).Authorization).toBe('Bearer test-key');
     const body = JSON.parse(String(observedInit?.body));
-    expect(body.model).toBe('MiniMax-M2.7');
+    expect(body.model).toBe('MiniMax-M2.7-highspeed');
     expect(body.messages.some((m: { content?: string }) => m.content?.includes('Expected changed files: README.md'))).toBe(true);
   });
 
@@ -186,5 +186,104 @@ describe('MiniMaxProvider', () => {
     expect(userPrompts[1]).toContain('I updated the README');
     expect(result.status).toBe('completed');
     expect(result.risks).toContain('provider_output_repair_retry_used');
+  });
+
+  it('accepts base64 file content from repair prompts to avoid JSON string escaping drift', async () => {
+    const dir = await tmp();
+    const readme = '# Provtest\n\n## Install\n\nnpm install\n\n## Usage\n\nRun "npm start".\n';
+    let calls = 0;
+    let repairSystemPrompt = '';
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      if (calls === 2) repairSystemPrompt = body.messages.find((m: { role: string }) => m.role === 'system')?.content ?? '';
+      const content = calls === 1
+        ? '{"summary":"Broken payload","changed_files":["README.md"],"edits":[{"path":"README.md","content":"# Provtest\n## Install"}]}'
+        : JSON.stringify({
+          summary: 'Added README after base64 repair retry',
+          changed_files: ['README.md'],
+          edits: [{
+            path: 'README.md',
+            content_base64: Buffer.from(readme, 'utf8').toString('base64'),
+          }],
+          risks: [],
+          next_steps: [],
+        });
+      return new Response(JSON.stringify({
+        choices: [{ message: { content } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    const result = await provider.runTask(task, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: [],
+    });
+
+    expect(calls).toBe(2);
+    expect(repairSystemPrompt).toContain('content_base64');
+    expect(result.status).toBe('completed');
+    expect(await fs.readFile(path.join(dir, 'README.md'), 'utf8')).toBe(readme);
+  });
+
+  it('retries verification repair payloads that only edit tests', async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, 'app.py'), 'def redact(x):\n    return x\n');
+    await fs.mkdir(path.join(dir, 'tests'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), 'def test_placeholder():\n    assert True\n');
+    const repairTask: AgentTask = {
+      id: 't_repair',
+      iteration_id: 'i_minimax',
+      assigned_to: 'executor',
+      title: 'Repair failing project verification',
+      description: 'pytest failed because app.redact does not mask a secret',
+      acceptance_criteria: [
+        'the root cause is fixed in source or tests',
+        'the fix addresses the root cause rather than weakening or deleting tests',
+      ],
+      expected_changed_files: ['app.py', 'tests/test_app.py'],
+      verification_commands: ['python3 -c "from app import redact; assert redact(\'secret\') == \'[redacted]\'"'],
+      priority: 'blocker',
+      status: 'pending',
+    };
+    let calls = 0;
+    let secondPrompt = '';
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      if (calls === 2) secondPrompt = body.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+      const content = calls === 1
+        ? JSON.stringify({
+          summary: 'Changed only the test',
+          changed_files: ['tests/test_app.py'],
+          edits: [{ path: 'tests/test_app.py', content: 'def test_placeholder():\n    assert True\n' }],
+          risks: [],
+          next_steps: [],
+        })
+        : JSON.stringify({
+          summary: 'Fixed source redaction behavior',
+          changed_files: ['app.py'],
+          edits: [{ path: 'app.py', content: 'def redact(x):\n    return "[redacted]" if x == "secret" else x\n' }],
+          risks: [],
+          next_steps: [],
+        });
+      return new Response(JSON.stringify({
+        choices: [{ message: { content } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    const result = await provider.runTask(repairTask, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: [],
+    });
+
+    expect(calls).toBe(2);
+    expect(secondPrompt).toContain('only changed test files');
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(['app.py']);
+    expect(await fs.readFile(path.join(dir, 'app.py'), 'utf8')).toContain('[redacted]');
   });
 });

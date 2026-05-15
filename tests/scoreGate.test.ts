@@ -17,6 +17,21 @@ async function mk(files: Record<string, string>) {
 }
 
 describe('score gate', () => {
+  it('does not convert anti-gaming build penalties into command verification failures', async () => {
+    const project = await mk({
+      'README.md': '# Demo\n\n## Usage\n\nRun it.\n' + 'x'.repeat(500),
+      'package.json': JSON.stringify({ name: 'demo', scripts: { build: 'echo ok', test: 'node --test tests/smoke.test.mjs' } }),
+      'tests/smoke.test.mjs': 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("ok", () => assert.equal(1, 1));\n',
+    });
+    const snap = await takeSnapshot(project);
+    const { standard } = await selectStandardForSnapshot(snap);
+
+    const score = await scoreProjectWithEvidence(snap, standard, { runCommands: false });
+
+    expect(score.anti_gaming_findings?.some((f) => f.detector === 'no_op_script')).toBe(true);
+    expect(score.score_gate?.failures.some((f) => f.gate === 'build')).not.toBe(true);
+  });
+
   it('caps score when declared tests fail even if productization files exist', async () => {
     const project = await mk({
       'README.md': '# Demo\n\n## Install\n\n```bash\npython3 -m pytest -q\n```\n\n## Usage\n\nRun the app.\n' + 'x'.repeat(500),

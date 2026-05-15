@@ -21,11 +21,17 @@ Then on your real project:
 ```bash
 pnpm matrixomnix analyze --project /path/to/your/repo
 pnpm matrixomnix research --project /path/to/your/repo --domain web_ui_app --web
+pnpm matrixomnix models:refresh --project /path/to/your/repo --web
 pnpm matrixomnix gap --project /path/to/your/repo
 pnpm matrixomnix trust:check --project /path/to/your/repo
-pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1
+pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1 --web
 pnpm matrixomnix report:project --project /path/to/your/repo
 ```
+
+`iterate --web` performs the same controlled official LLM model catalog refresh
+before planning when an LLM/provider surface is detected, so provider/model
+selectors can be repaired from current provider-owned documentation during the
+normal demo-to-product loop without adding model research to unrelated demos.
 
 Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
@@ -39,6 +45,64 @@ Live site: <https://matrixomnix.vercel.app>
 
 Deployment guide: [`docs/deployment.md`](docs/deployment.md). The repository
 includes Vercel and Render configuration for the MatrixOmnix web surface.
+
+## Current State
+
+MatrixOmnix is a **beta, local-first productization harness**. It is already
+useful for turning rough repositories into stronger engineering baselines:
+tests, contracts, runtime guards, configuration examples, deployment hooks,
+documentation, QA memory and repeatable verification reports.
+
+The current system is intentionally strict about evidence:
+
+- `analyze` and `gap` separate project structure from real product readiness.
+- `research --web` records source-cited competitor capabilities under
+  `.demo2project/research`.
+- `iterate` plans bounded tasks and verifies them locally before accepting
+  progress.
+- failed verification becomes repair work before normal productization
+  continues.
+- QA cases are fingerprinted so repeated bugs can be detected across future
+  runs.
+
+This does **not** mean every demo becomes an industrial product after one run.
+MatrixOmnix should be read as a disciplined operating system for iteration,
+not a magic upload service or a substitute for release review.
+
+## Product Boundaries
+
+The hosted MatrixOmnix site is currently an introduction and beta usage guide.
+It does not yet accept uploaded demo archives, run private jobs in hosted
+workspaces, or return production ZIP artifacts. Those capabilities require
+workspace isolation, queueing, artifact storage, secrets handling, abuse
+controls, billing/support boundaries and much stronger end-to-end validation.
+
+Internally, MatrixOmnix now treats market-readiness claims more conservatively:
+source-backed research must extract concrete capabilities before the project can
+claim source-cited market parity. A local module named `lobby.py` or
+`ranking.py` is not enough by itself; the system must prove the capability is
+integrated, reachable and verified.
+
+## Roadmap
+
+Near-term work focuses on making the beta harder to fool:
+
+- stricter scoring gates for README quality, market research quality and
+  in-memory product skeletons;
+- more reliable MiniMax and other API-backed provider execution, including
+  base64 edit payloads for large file edits;
+- deeper UI/browser checks for accessibility, responsive layout, touch,
+  keyboard and render-smoke behavior;
+- broader project-surface harnesses for API, CLI, data, worker, game, ML,
+  media, mobile, desktop and extension demos;
+- long-running iteration reports that make every improvement, failure and open
+  blocker auditable.
+
+Longer term, MatrixOmnix should become a managed service: upload or connect a
+demo repository, run it in a controlled workspace, compare it against real
+market expectations, iterate safely for hours, then return a reviewed product
+baseline with source control history, verification evidence and a clear list of
+remaining release blockers.
 
 ---
 
@@ -118,6 +182,10 @@ demo. Current harness families include:
   requires explicit schema evidence.
 - **Worker contract** — detects queues, scheduled jobs and background workers
   before productizing async behavior.
+- **Specialized delivery-surface contracts** — detects browser extensions,
+  notebooks, mobile/desktop shells, games, 3D/WebGL scenes, ML model demos and
+  media pipelines, then requires executable harnesses before agents apply
+  unrelated UI/API/CLI assumptions.
 - **UI product verification** — checks browser harnesses, render smoke,
   accessibility, responsive layout and common interaction risks.
 - **Public product-claim verification** — flags UI/docs that promise hosted
@@ -221,9 +289,10 @@ pnpm matrixomnix gap --project ./werewolf-demo --evidence --verify
 pnpm matrixomnix long-run --project ./werewolf-demo --provider minimax-m27 --hours 10 --in-place --output reports/long-run/werewolf.json
 ```
 
-For MiniMax M2.7, set `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`. The
-default MiniMax base URL is `https://api.minimaxi.com/v1`; override it with
-`MINIMAX_BASE_URL` when needed.
+For MiniMax live runs, set `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`.
+The default model is `MiniMax-M2.7-highspeed`; override it with
+`MINIMAX_MODEL` when needed. The default MiniMax base URL is
+`https://api.minimaxi.com/v1`; override it with `MINIMAX_BASE_URL` when needed.
 
 ```bash
 # Inspect a project

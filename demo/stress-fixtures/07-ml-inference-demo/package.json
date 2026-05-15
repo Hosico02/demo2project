@@ -1,0 +1,8 @@
+{
+  "name": "stress-ml-inference-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "onnxruntime-web": "^1.23.0"
+  }
+}

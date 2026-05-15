@@ -1,0 +1,86 @@
+[
+  {
+    "id": "01-ui-spa-demo",
+    "name": "Pure UI SPA demo",
+    "expected_findings": ["missing_ui_product_verification"],
+    "expected_plan_titles": ["Add UI product verification harness"],
+    "expected_product_files": ["scripts/ui-product-check.mjs", "tests/ui/smoke.spec.ts", "package.json"]
+  },
+  {
+    "id": "02-api-demo",
+    "name": "Python API demo",
+    "expected_findings": ["missing_api_contract_harness", "missing_config_contract_harness"],
+    "expected_plan_titles": ["Add API contract harness", "Add config contract harness"],
+    "expected_product_files": ["docs/api-contract.md", "scripts/api-contract-check.mjs", "docs/config-contract.md", "scripts/config-contract-check.mjs", ".env.example", "package.json"]
+  },
+  {
+    "id": "03-cli-demo",
+    "name": "Node CLI demo",
+    "expected_findings": ["missing_cli_contract_harness"],
+    "expected_plan_titles": ["Add CLI executable contract harness"],
+    "expected_product_files": ["docs/cli-contract.md", "scripts/cli-contract-check.mjs", "package.json"]
+  },
+  {
+    "id": "04-llm-chat-demo",
+    "name": "LLM app demo",
+    "expected_findings": ["missing_user_llm_provider_config"],
+    "expected_plan_titles": ["Add player-supplied LLM provider configuration"],
+    "expected_product_files": ["llm_config.py", "tests/test_llm_config.py", ".env.example"]
+  },
+  {
+    "id": "05-game-demo",
+    "name": "Game demo",
+    "expected_findings": ["missing_game_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add game runtime contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/game-contract.md", "scripts/game-contract-check.mjs"]
+  },
+  {
+    "id": "06-webgl-3d-demo",
+    "name": "3D WebGL demo",
+    "expected_findings": ["missing_3d_scene_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add 3D scene contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/3d-scene-contract.md", "scripts/3d-scene-contract-check.mjs"]
+  },
+  {
+    "id": "07-ml-inference-demo",
+    "name": "ML inference demo",
+    "expected_findings": ["missing_ml_model_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add ML model contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/ml-model-contract.md", "scripts/ml-model-contract-check.mjs"]
+  },
+  {
+    "id": "08-media-pipeline-demo",
+    "name": "Media pipeline demo",
+    "expected_findings": ["missing_media_pipeline_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add media pipeline contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/media-pipeline-contract.md", "scripts/media-pipeline-contract-check.mjs"]
+  },
+  {
+    "id": "09-browser-extension-demo",
+    "name": "Browser extension demo",
+    "expected_findings": ["missing_browser_extension_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add browser extension contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/browser-extension-contract.md", "scripts/browser-extension-contract-check.mjs"]
+  },
+  {
+    "id": "10-notebook-demo",
+    "name": "Notebook demo",
+    "expected_findings": ["missing_notebook_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add notebook reproducibility contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/notebook-contract.md", "scripts/notebook-contract-check.mjs"]
+  },
+  {
+    "id": "11-mobile-demo",
+    "name": "Mobile app demo",
+    "expected_findings": ["missing_mobile_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add mobile app contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/mobile-contract.md", "scripts/mobile-contract-check.mjs"]
+  },
+  {
+    "id": "12-desktop-demo",
+    "name": "Desktop app demo",
+    "expected_findings": ["missing_desktop_contract_harness"],
+    "expected_plan_titles": ["Add demo surface contract matrix", "Add desktop app contract harness"],
+    "expected_product_files": ["docs/productization-surface-map.md", "scripts/surface-contract-check.mjs", "docs/desktop-contract.md", "scripts/desktop-contract-check.mjs"]
+  }
+]

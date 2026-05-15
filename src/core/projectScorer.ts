@@ -37,7 +37,7 @@ export async function scoreProject(
   const has = (rel: string): boolean =>
     files.includes(rel) || files.some((f) => f.startsWith(rel + '/'));
   const notes: string[] = [];
-  const pkg = await readJsonSafe<{ scripts?: Record<string, string> }>(path.join(root, 'package.json'));
+  const pkg = await readJsonSafe<{ scripts?: Record<string, string>; bin?: unknown }>(path.join(root, 'package.json'));
   const scripts = pkg?.scripts ?? {};
 
   // --- structure ---
@@ -52,7 +52,7 @@ export async function scoreProject(
   if (testAssessment.hasAssertionTest) testScore += 6;
   else if (testAssessment.hasSmokeTest) testScore += 3;
   if (testAssessment.hasSubstantiveTestFile) testScore += 2;
-  if (testAssessment.hasRegressionTest) testScore += 3;
+  if (testAssessment.hasRegressionTest || testAssessment.hasProductBehaviorTest) testScore += 3;
   testScore = Math.min(18, testScore);
 
   // --- build ---
@@ -65,9 +65,9 @@ export async function scoreProject(
 
   // --- runtime ---
   let runtimeScore = 0;
-  if (snapshot.start_commands.length > 0) runtimeScore += 6;
-  if (has('src') || files.some((f) => /\.(ts|js|py|go)$/.test(f))) runtimeScore += 2;
-  if (snapshot.dependency_summary.has_lockfile) runtimeScore += 2;
+  if (snapshot.start_commands.length > 0 || hasPackageBin(pkg)) runtimeScore += 6;
+  if (has('src') || files.some((f) => /\.(ts|tsx|js|jsx|mjs|cjs|py|go)$/.test(f))) runtimeScore += 2;
+  if (snapshot.dependency_summary.has_lockfile || hasNoRuntimeDependencies(snapshot)) runtimeScore += 2;
   runtimeScore = Math.min(10, runtimeScore);
 
   // --- docs ---
@@ -85,7 +85,7 @@ export async function scoreProject(
 
   // --- maintainability (very simple heuristic) ---
   let maintainabilityScore = 4; // baseline
-  const big = files.filter((f) => /\.(ts|js|py)$/.test(f));
+  const big = files.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs|py)$/.test(f));
   if (big.length > 0) {
     let oversized = 0;
     for (const f of big.slice(0, 80)) {
@@ -114,7 +114,7 @@ export async function scoreProject(
     const txt = await readTextSafe(path.join(root, f));
     if (!txt) continue;
     for (const pat of standard.forbidden_patterns) {
-      if (new RegExp(pat).test(txt)) {
+      if (matchesForbiddenPattern(txt, pat)) {
         leakFound = true;
         notes.push(`forbidden pattern matched in ${f}`);
         break;
@@ -130,6 +130,15 @@ export async function scoreProject(
   const ciAssessment = await assessCi(root, files, notes);
   if (ciAssessment.hasTestVerification && testAssessment.hasMeaningfulCommand) agentProcessScore += 3;
   if (ciAssessment.hasBuildVerification && hasMeaningfulBuildCommand(snapshot, scripts, notes, false)) agentProcessScore += 2;
+  if (
+    ciAssessment.hasTestVerification &&
+    ciAssessment.hasBuildVerification &&
+    testAssessment.hasMeaningfulCommand &&
+    hasMeaningfulBuildCommand(snapshot, scripts, notes, false)
+  ) {
+    agentProcessScore += 2;
+  }
+  if (hasProductCoreVerification(files, scripts)) agentProcessScore += 3;
   agentProcessScore += await scoreDemo2ProjectProcessState(root);
   if (has('qa')) agentProcessScore += 4;
   if (has('qa/specs') || files.includes('qa/specs/qa-regression.spec.json')) agentProcessScore += 4;
@@ -165,6 +174,7 @@ interface TestAssessment {
   hasSmokeTest: boolean;
   hasSubstantiveTestFile: boolean;
   hasRegressionTest: boolean;
+  hasProductBehaviorTest: boolean;
 }
 
 async function assessTests(
@@ -195,6 +205,7 @@ async function assessTests(
     hasSmokeTest,
     hasSubstantiveTestFile,
     hasRegressionTest: testFiles.some((f) => /regression/i.test(f)) && hasSubstantiveTestFile,
+    hasProductBehaviorTest: testFiles.some((f) => /(product-core|contract|integration|e2e)/i.test(f)) && hasAssertionTest,
   };
 }
 
@@ -202,6 +213,26 @@ function isTestFile(file: string): boolean {
   return /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(file) ||
     /(^|\/)test_[^/]+\.py$/.test(file) ||
     /_test\.py$/.test(file);
+}
+
+function hasPackageBin(pkg: { bin?: unknown } | null | undefined): boolean {
+  if (!pkg || pkg.bin === undefined || pkg.bin === null) return false;
+  if (typeof pkg.bin === 'string') return pkg.bin.trim().length > 0;
+  if (typeof pkg.bin === 'object') return Object.keys(pkg.bin as Record<string, unknown>).length > 0;
+  return false;
+}
+
+function hasNoRuntimeDependencies(snapshot: ProjectSnapshot): boolean {
+  return snapshot.dependency_summary.runtime === 0 && snapshot.dependency_summary.dev === 0;
+}
+
+function hasProductCoreVerification(files: string[], scripts: Record<string, string>): boolean {
+  const scriptBlob = Object.values(scripts).join('\n');
+  const hasCoreSource = files.some((file) => /^src\/product-core\.mjs$/.test(file) || /^src\/product_core\.py$/.test(file));
+  const hasCoreTest = files.some((file) => /^tests\/product-core\.test\.mjs$/.test(file) || /^tests\/test_product_core\.py$/.test(file));
+  const hasCoreDocs = files.includes('docs/product-core.md');
+  const hasCoreScript = /\bproduct:core-check\b|product-core\.test|test_product_core/.test(scriptBlob);
+  return hasCoreSource && hasCoreTest && hasCoreDocs && hasCoreScript;
 }
 
 function hasMeaningfulBuildCommand(
@@ -226,6 +257,29 @@ function isPlaceholderCommand(command: string): boolean {
     /^(true|exit\s+0)$/.test(normalized) ||
     /\bnode\s+-e\s+["']?\s*console\.log\s*\(/.test(normalized) ||
     /\b(build ok|test ok|tests? pass(?:ed)?|ok)\b/.test(normalized) && !/\b(vitest|jest|mocha|pytest|node\s+--test|tsc|vite|next|nuxt|astro|webpack|rollup|eslint|ruff|mypy)\b/.test(normalized);
+}
+
+function matchesForbiddenPattern(text: string, pattern: string): boolean {
+  if (/PRIVATE KEY/.test(pattern)) {
+    return /^-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{20,}^-----END [A-Z ]*PRIVATE KEY-----/m.test(text);
+  }
+  if (/^sk-|\\bsk-|\bsk-/.test(pattern)) {
+    return Array.from(text.matchAll(/\bsk-[A-Za-z0-9][A-Za-z0-9_-]{19,}\b/g))
+      .some((match) => !isDummySecretToken(match[0]));
+  }
+  try {
+    return new RegExp(pattern).test(text);
+  } catch {
+    return false;
+  }
+}
+
+function isDummySecretToken(token: string): boolean {
+  const value = token.toLowerCase();
+  return /\b(example|dummy|fake|test|placeholder)\b/.test(value) ||
+    /1234567890/.test(value) ||
+    /abcdefghij/.test(value) ||
+    /[x_]{8,}/.test(value);
 }
 
 async function hasSubstantiveEnvExample(root: string, notes: string[]): Promise<boolean> {

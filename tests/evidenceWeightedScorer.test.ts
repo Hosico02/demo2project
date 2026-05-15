@@ -55,4 +55,42 @@ describe('Evidence-weighted scoring', () => {
     expect(tev.verified).toBe(false);
     expect(tev.result).toBe('unrun');
   });
+
+  it('preserves failing command output for repair planning', async () => {
+    const proj = await mk({
+      'package.json': JSON.stringify({
+        name: 'x',
+        scripts: { test: 'node -e "console.error(\'contract failure detail\'); process.exit(1)"' },
+      }),
+    });
+    const snap = await takeSnapshot(proj);
+    const { standard } = await selectStandardForSnapshot(snap);
+    const score = await scoreProjectWithEvidence(snap, standard, { runCommands: true });
+    const tev = score.score_evidence!.find((e) => e.dimension === 'test_score')!;
+
+    expect(tev.result).toBe('failed');
+    expect(tev.stderr_summary).toContain('contract failure detail');
+    expect(score.score_gate?.failures[0]?.stderr_summary).toContain('contract failure detail');
+  });
+
+  it('treats passing commands with unhandled runtime exception output as failed evidence', async () => {
+    const proj = await mk({
+      'package.json': JSON.stringify({
+        name: 'x',
+        scripts: {
+          test: 'node -e "console.error(\'game thread failed\\\\nTraceback (most recent call last):\\\\nAuthenticationError: invalid key\')"',
+        },
+      }),
+    });
+    const snap = await takeSnapshot(proj);
+    const { standard } = await selectStandardForSnapshot(snap);
+    const score = await scoreProjectWithEvidence(snap, standard, { runCommands: true });
+    const tev = score.score_evidence!.find((e) => e.dimension === 'test_score')!;
+
+    expect(tev.result).toBe('failed');
+    expect(tev.verified).toBe(false);
+    expect(tev.failure_reason).toContain('suspicious_output');
+    expect(score.score_gate?.status).toBe('failed');
+    expect(score.total).toBeLessThanOrEqual(49);
+  });
 });

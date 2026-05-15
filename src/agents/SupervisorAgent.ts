@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import type {
   IterationSummary,
   IterationEvent,
@@ -16,6 +18,12 @@ import { EvidenceGraph } from '../core/evidenceGraph.js';
 import { CostTracker } from '../core/costTracker.js';
 import { IterationWorkspace } from '../core/iterationWorkspace.js';
 import { buildVerificationRepairTask } from '../core/verificationRepair.js';
+import {
+  officialModelCatalogPath,
+  refreshOfficialModelCatalog,
+  writeOfficialModelCatalog,
+  type RefreshOfficialModelCatalogOptions,
+} from '../research/OfficialModelCatalog.js';
 import { QAAgent } from '../qa/QAAgent.js';
 import { QACaseStore } from '../qa/QACaseStore.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
@@ -44,6 +52,10 @@ export interface IterateOptions {
   parallelism?: number;
   /** When true and project_path is a git repo, isolate each iteration on a branch. */
   useWorktree?: boolean;
+  /** Controlled opt-in refresh for provider-owned LLM model docs before planning. */
+  officialModelCatalog?: Omit<RefreshOfficialModelCatalogOptions, 'projectPath' | 'systemRoot'> & {
+    mode?: 'auto' | 'always';
+  };
 }
 
 /**
@@ -88,6 +100,7 @@ export class SupervisorAgent {
 
     let prevScore = -1;
     let noProgressRounds = 0;
+    let officialModelCatalogRefreshAttempted = false;
 
     const workspace = opts.useWorktree ? new IterationWorkspace(opts.projectPath) : null;
 
@@ -117,6 +130,11 @@ export class SupervisorAgent {
             : `workspace disabled: ${begin.reason ?? 'unknown'}`,
           metadata: { workspace_enabled: begin.enabled, reason: begin.reason },
         });
+      }
+
+      if (!officialModelCatalogRefreshAttempted) {
+        officialModelCatalogRefreshAttempted = true;
+        await this.refreshOfficialModelCatalogIfRequested(opts, iterationId, store);
       }
 
       // 1. analyze
@@ -397,7 +415,7 @@ export class SupervisorAgent {
 
       // 8. stop conditions
       if (gapAfter.findings.length === 0 && gapAfter.blockers.length === 0) break;
-      if (scoreAfter.grade === 'production_ready_baseline') break;
+      if (scoreAfter.grade === 'production_ready_baseline' && gapAfter.findings.length === 0 && gapAfter.blockers.length === 0) break;
       if (prevScore >= 0 && scoreAfter.total <= prevScore && fixedDefects === 0) {
         noProgressRounds++;
         if (noProgressRounds >= 2) break;
@@ -407,6 +425,97 @@ export class SupervisorAgent {
       prevScore = scoreAfter.total;
     }
     return summaries;
+  }
+
+  private async refreshOfficialModelCatalogIfRequested(
+    opts: IterateOptions,
+    iterationId: string,
+    store: EventStore,
+  ): Promise<void> {
+    if (!opts.officialModelCatalog?.allowNetwork) return;
+    const mode = opts.officialModelCatalog.mode ?? 'auto';
+    if (mode !== 'always' && !(await projectHasLlmProviderSurface(opts.projectPath))) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'analyzer',
+        event_type: 'note',
+        severity: 'info',
+        message: 'official LLM model catalog refresh skipped: no LLM provider surface detected',
+        metadata: { official_model_catalog_refresh: 'skipped_no_llm_surface' },
+      });
+      return;
+    }
+    try {
+      const catalog = await refreshOfficialModelCatalog({
+        ...opts.officialModelCatalog,
+        projectPath: opts.projectPath,
+        systemRoot: opts.systemRoot ?? opts.projectPath,
+      });
+      await writeOfficialModelCatalog(opts.projectPath, catalog);
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'analyzer',
+        event_type: 'note',
+        severity: catalog.warnings.length > 0 ? 'medium' : 'info',
+        message: `official LLM model catalog refreshed from provider docs (${catalog.providers.length} providers, ${catalog.warnings.length} warning(s))`,
+        files_changed: ['.demo2project/research/llm-model-catalog.json'],
+        metadata: {
+          artifact: '.demo2project/research/llm-model-catalog.json',
+          provider_count: catalog.providers.length,
+          refreshed_provider_count: catalog.providers.filter((provider) => provider.source_kind === 'live_official_docs').length,
+          warnings: catalog.warnings,
+        },
+      });
+    } catch (err) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'analyzer',
+        event_type: 'note',
+        severity: 'medium',
+        message: `official LLM model catalog refresh skipped: ${err instanceof Error ? err.message : String(err)}`,
+        metadata: { official_model_catalog_refresh: 'failed' },
+      });
+    }
+  }
+}
+
+async function projectHasLlmProviderSurface(projectPath: string): Promise<boolean> {
+  if (await exists(officialModelCatalogPath(projectPath))) return true;
+  const candidates = [
+    'llm_config.py',
+    'app.py',
+    'player.py',
+    'game.py',
+    'config.py',
+    'requirements.txt',
+    'pyproject.toml',
+    'package.json',
+    'templates/index.html',
+    'src/App.vue',
+    'src/App.tsx',
+    'src/App.jsx',
+    'src/main.ts',
+    'src/main.tsx',
+    'index.html',
+  ];
+  const text = (await Promise.all(candidates.map((rel) => readTextIfExists(path.join(projectPath, rel))))).join('\n');
+  return /\b(public_provider_config|PROVIDER_PRESETS|llmProvider|llmModel|LLM|openai|deepseek|minimax|qwen|dashscope|model\s*[:=]|api_key)\b/i.test(text);
+}
+
+async function readTextIfExists(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function exists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
   }
 }
 

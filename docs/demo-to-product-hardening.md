@@ -23,6 +23,11 @@ This note records the issues found while testing Demo2Project against
 7. Product standards were too static. The analyzer could compare a demo against
    built-in rules, but it could not gather current competitor/product evidence
    for an unfamiliar domain before planning productization work.
+8. LLM provider model choices were too static. A UI could offer provider
+   selection while still forcing users to type stale or unknown model IDs.
+9. Demo-type generalization still missed specialized delivery surfaces such as
+   browser extensions, notebooks, mobile shells, desktop shells, games,
+   3D/WebGL scenes, ML model demos and media pipelines.
 
 ## Changes made
 
@@ -52,6 +57,26 @@ This note records the issues found while testing Demo2Project against
   reports under `.demo2project/research`; `gap` consumes only sourced
   capabilities and planner/executor can create a market-research roadmap without
   copying competitor IP.
+- Official LLM model catalog refresh is now a controlled harness.
+  `matrixomnix models:refresh --project <path> --web` reads allowlisted official
+  provider documentation, writes `.demo2project/research/llm-model-catalog.json`,
+  and LLM provider repairs expose `models`, `default_model`, `source_url` and
+  `source_kind` in generated provider presets.
+- `matrixomnix iterate --project <path> --web` now refreshes that same official
+  model catalog before analysis/planning when an LLM/provider surface is
+  detected, so the closed-loop agents can discover and repair stale or empty
+  model selectors without a separate manual refresh step and without applying
+  model research to unrelated demos.
+- Delivery-surface detection now recognizes specialized demo shapes including
+  browser extensions, notebooks, mobile apps, desktop shells, games, 3D/WebGL
+  scenes, ML model demos and media pipelines. When such a surface appears,
+  `gap` asks for a productization surface map and `surface:contract-check`
+  harness before agents apply UI/API/CLI assumptions.
+- Browser extension, notebook, mobile, desktop, game, 3D, ML and media
+  surfaces now also get dedicated contract harnesses. The generated scripts
+  validate manifest and entry evidence, notebook parseability, platform config,
+  renderer/game-loop/model/media-pipeline evidence, or desktop shell evidence
+  before further productization work is planned.
 
 ## Recommended 10-hour command
 

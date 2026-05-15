@@ -17,6 +17,29 @@ export async function analyzeMarketResearchGaps(
   const sourcedCapabilities = report.capabilities
     .filter((c) => c.importance === 'required' || c.importance === 'recommended')
     .filter((c) => c.source_urls.some((url) => /^https?:\/\//i.test(url)));
+  if (sourcedCapabilities.length === 0) {
+    return {
+      findings: [{
+        id: shortId('gap'),
+        category: 'market_research_capability_extraction_failed',
+        severity: 'high',
+        message: 'Market research did not produce any source-cited product capabilities',
+        why_it_matters: 'A project must not be marked market-ready when web research found sources but failed to extract concrete, source-backed capabilities to compare against.',
+        suggested_fix: 'Refresh research with better queries or improve capability extraction, then rerun gap analysis before allowing market-ready scoring.',
+        related_files: ['.demo2project/research/latest.json', '.demo2project/research/latest.md'],
+      }],
+      product_maturity: {
+        domain: report.domain,
+        target_market: `source-cited market parity for ${report.domain}`,
+        score: 0,
+        level: 'demo',
+        summary: `Detected 0 source-cited market capabilities from ${report.sources.length} source(s); market parity cannot be assessed.`,
+        capabilities: [],
+        missing_capabilities: ['Source-cited market capability extraction'],
+        references: Array.from(new Set(report.sources.map((source) => source.url).filter((url) => /^https?:\/\//i.test(url)))),
+      },
+    };
+  }
   const implementationText = await readImplementationText(projectPath, files);
   const assessed = sourcedCapabilities.map((cap) => ({
     cap,
@@ -26,7 +49,7 @@ export async function analyzeMarketResearchGaps(
     .filter((a) => !a.met && a.cap.importance === 'required')
     .map((a) => a.cap);
   const met = assessed.filter((a) => a.met).length;
-  const score = assessed.length === 0 ? 100 : Math.round((met / assessed.length) * 100);
+  const score = Math.round((met / assessed.length) * 100);
   const product_maturity: ProductMaturityAssessment = {
     domain: report.domain,
     target_market: `source-cited market parity for ${report.domain}`,

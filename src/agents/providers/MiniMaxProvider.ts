@@ -20,6 +20,12 @@ interface MiniMaxEdit {
   content: string;
 }
 
+interface MiniMaxRawEdit {
+  path?: unknown;
+  content?: unknown;
+  content_base64?: unknown;
+}
+
 interface MiniMaxJsonPayload {
   summary?: string;
   changed_files?: unknown[];
@@ -30,7 +36,7 @@ interface MiniMaxJsonPayload {
 }
 
 /**
- * MiniMaxProvider drives MiniMax M2.7 through its OpenAI-compatible chat API.
+ * MiniMaxProvider drives MiniMax M2.7 high-speed through its OpenAI-compatible chat API.
  *
  * Unlike CLI-based agents, a raw chat API cannot touch the filesystem. The
  * provider therefore uses a strict JSON edit protocol: MiniMax returns complete
@@ -54,7 +60,7 @@ export class MiniMaxProvider implements AgentProvider {
       enabled: opts.enabled ?? process.env.DEMO2PROJECT_MINIMAX === '1',
       apiKey: opts.apiKey ?? process.env.MINIMAX_API_KEY ?? process.env.DEMO2PROJECT_MINIMAX_API_KEY,
       baseUrl: trimTrailingSlash(opts.baseUrl ?? process.env.MINIMAX_BASE_URL ?? 'https://api.minimaxi.com/v1'),
-      model: opts.model ?? process.env.MINIMAX_MODEL ?? 'MiniMax-M2.7',
+      model: opts.model ?? process.env.MINIMAX_MODEL ?? 'MiniMax-M2.7-highspeed',
       timeoutMs: opts.timeoutMs ?? 300_000,
       fetchImpl: fetchImpl as typeof fetch,
     };
@@ -131,7 +137,48 @@ export class MiniMaxProvider implements AgentProvider {
       };
     }
 
-    const edits = normalizeEdits(parsed);
+    let edits = normalizeEdits(parsed);
+    let usedUnsafeEditRepairRetry = false;
+    let unsafeEditReason = unsafeVerificationRepairEditReason(task, edits);
+    if (unsafeEditReason) {
+      usedUnsafeEditRepairRetry = true;
+      api = await invokeMiniMax(buildUnsafeEditRepairMessages(messages, assistantText, unsafeEditReason), this.opts);
+      if (api.error) {
+        return {
+          ...base,
+          status: 'failed',
+          summary: `MiniMax returned unsafe verification-repair edits and repair retry failed: ${api.error}`,
+          unable_to_verify_reason: 'unsafe_provider_edit',
+          failures: ['unsafe_provider_edit', `minimax_unsafe_edit_repair_api_error:${api.error}`],
+          risks: [unsafeEditReason],
+        };
+      }
+      assistantText = extractAssistantText(api.json);
+      parsed = parseMiniMaxJson(assistantText);
+      if (!parsed) {
+        return {
+          ...base,
+          status: 'failed',
+          summary: 'MiniMax unsafe-edit repair response did not contain parseable JSON',
+          unable_to_verify_reason: 'provider_output_unparseable',
+          failures: ['unsafe_provider_edit', 'provider_output_unparseable'],
+          risks: [unsafeEditReason, summarizeOutput(assistantText, 20, 2000)],
+        };
+      }
+      edits = normalizeEdits(parsed);
+      unsafeEditReason = unsafeVerificationRepairEditReason(task, edits);
+      if (unsafeEditReason) {
+        return {
+          ...base,
+          status: 'failed',
+          summary: 'MiniMax verification-repair edits were unsafe to apply',
+          unable_to_verify_reason: 'unsafe_provider_edit',
+          failures: ['unsafe_provider_edit'],
+          risks: [unsafeEditReason],
+          next_steps: normalizeStringArray(parsed.next_steps),
+        };
+      }
+    }
     if (edits.length === 0) {
       return {
         ...base,
@@ -139,7 +186,7 @@ export class MiniMaxProvider implements AgentProvider {
         summary: parsed.summary ?? 'MiniMax returned no edits',
         changed_files: normalizeStringArray(parsed.changed_files),
         unable_to_verify_reason: 'provider_returned_no_edits',
-        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry),
+        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
         next_steps: normalizeStringArray(parsed.next_steps),
       };
     }
@@ -151,7 +198,7 @@ export class MiniMaxProvider implements AgentProvider {
         status: 'failed',
         summary: parsed.summary ?? 'MiniMax returned edits, but they were not safe to apply',
         failures: applyFailures,
-        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry),
+        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
         next_steps: normalizeStringArray(parsed.next_steps),
       };
     }
@@ -175,7 +222,7 @@ export class MiniMaxProvider implements AgentProvider {
       verification_evidence: evidence,
       unable_to_verify_reason: evidence.length === 0 ? 'no_verification_commands_for_task' : undefined,
       failures: evidence.filter((e) => !e.passed).map((e) => `${e.command} → ${e.failure_reason ?? 'failed'}`),
-      risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry),
+      risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
       next_steps: normalizeStringArray(parsed.next_steps),
     };
   }
@@ -213,7 +260,7 @@ async function invokeMiniMax(
         model: opts.model,
         messages,
         temperature: 0.1,
-        max_tokens: 8192,
+        max_tokens: 16384,
       }),
       signal: controller.signal,
     });
@@ -244,8 +291,11 @@ async function buildMessages(
     'You are a code-modification executor inside the demo2project loop.',
     'You cannot call tools. Return complete file edits for this provider to apply.',
     'Return ONLY one JSON object. Do not wrap it in markdown.',
-    'Schema: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content"}],"next_steps":[],"risks":[]}',
+    'Schema: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content","content_base64":"optional base64 utf-8 complete file content"}],"next_steps":[],"risks":[]}',
+    'For large files or files containing many quotes/backslashes, prefer content_base64 instead of content to avoid JSON escaping drift.',
     'Rules: edit only paths needed for the task, use relative paths inside the project, and include complete file content for each edit.',
+    'Verification repair rule: do not weaken, delete, or rewrite tests to match broken behavior. Prefer source or harness fixes. Edit test files only when the failure output proves the test file itself is syntactically corrupted or the task explicitly asks for a test update.',
+    'If you cannot identify a root cause from the provided failure output, return no edits and explain the missing evidence in risks.',
   ].join('\n');
   const user = [
     `Task: ${task.title}`,
@@ -280,7 +330,8 @@ function buildOutputRepairMessages(
       content: [
         'You repair a previous MiniMax code-edit response into strict JSON.',
         'Return ONLY one valid JSON object. No markdown, no prose, no comments.',
-        'Use this schema exactly: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content"}],"next_steps":[],"risks":[]}',
+        'Use this schema exactly: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content","content_base64":"optional base64 utf-8 complete file content"}],"next_steps":[],"risks":[]}',
+        'Prefer content_base64 for every edit when repairing invalid JSON caused by file-content escaping.',
       ].join('\n'),
     },
     {
@@ -292,6 +343,37 @@ function buildOutputRepairMessages(
         `Original task prompt:\n${truncate(originalUser, 12_000)}`,
         '',
         `Invalid response:\n${truncate(invalidResponse, 4_000)}`,
+      ].join('\n'),
+    },
+  ];
+}
+
+function buildUnsafeEditRepairMessages(
+  originalMessages: Array<{ role: 'system' | 'user'; content: string }>,
+  invalidResponse: string,
+  reason: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  const originalUser = originalMessages.find((m) => m.role === 'user')?.content ?? '';
+  return [
+    {
+      role: 'system',
+      content: [
+        'You repair a previous MiniMax code-edit response that violated verification-repair safety rules.',
+        'Return ONLY one valid JSON object. No markdown, no prose, no comments.',
+        'Use this schema exactly: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content","content_base64":"optional base64 utf-8 complete file content"}],"next_steps":[],"risks":[]}',
+        'Prefer content_base64 for every edit when repairing invalid JSON caused by file-content escaping.',
+        'Do not change tests just to satisfy a failing assertion. Fix source or harness code unless the task explicitly proves a test syntax error.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        `The previous edit payload was unsafe: ${reason}`,
+        'Return a corrected payload for the same task. The corrected payload must fix the product/source root cause.',
+        '',
+        `Original task prompt:\n${truncate(originalUser, 12_000)}`,
+        '',
+        `Unsafe response:\n${truncate(invalidResponse, 4_000)}`,
       ].join('\n'),
     },
   ];
@@ -330,9 +412,17 @@ async function collectContextFiles(root: string, expected: string[], recentEvent
     'pyproject.toml',
     '.env.example',
     'app.py',
+    'llm_config.py',
+    'config.py',
     'main.py',
     'wsgi.py',
+    'scripts/api_contract_check.py',
+    'scripts/config_contract_check.py',
+    'scripts/api-contract-check.mjs',
+    'scripts/config-contract-check.mjs',
     'tests/test_app.py',
+    'tests/test_contract_harness.py',
+    'tests/test_llm_config.py',
     'tests/test_smoke.py',
     '.github/workflows/ci.yml',
     'Dockerfile',
@@ -430,10 +520,23 @@ function normalizeEdits(payload: MiniMaxJsonPayload): MiniMaxEdit[] {
   const raw = Array.isArray(payload.edits) ? payload.edits : Array.isArray(payload.file_edits) ? payload.file_edits : [];
   return raw.flatMap((edit) => {
     if (!edit || typeof edit !== 'object') return [];
-    const e = edit as { path?: unknown; content?: unknown };
-    if (typeof e.path !== 'string' || typeof e.content !== 'string') return [];
-    return [{ path: e.path, content: e.content }];
+    const e = edit as MiniMaxRawEdit;
+    if (typeof e.path !== 'string') return [];
+    if (typeof e.content === 'string') return [{ path: e.path, content: e.content }];
+    if (typeof e.content_base64 === 'string') {
+      const decoded = decodeBase64Utf8(e.content_base64);
+      if (decoded !== null) return [{ path: e.path, content: decoded }];
+    }
+    return [];
   });
+}
+
+function decodeBase64Utf8(value: string): string | null {
+  try {
+    return Buffer.from(value, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
 }
 
 async function applyEdits(root: string, edits: MiniMaxEdit[]): Promise<string[]> {
@@ -512,8 +615,37 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
-function withRetryRisk(risks: string[], usedOutputRepairRetry: boolean): string[] {
-  return usedOutputRepairRetry ? [...risks, 'provider_output_repair_retry_used'] : risks;
+function unsafeVerificationRepairEditReason(task: AgentTask, edits: MiniMaxEdit[]): string | null {
+  if (!/repair (failing project verification|failed verification)/i.test(task.title)) return null;
+  if (edits.length === 0) return null;
+  const changed = edits.map((e) => e.path);
+  const testEdits = changed.filter(isTestPath);
+  if (testEdits.length === 0) return null;
+  const nonTestEdits = changed.filter((p) => !isTestPath(p));
+  const explicitTestSyntaxRepair =
+    /test file itself is syntactically corrupted|test syntax|syntax error in test/i.test(task.description);
+  if (nonTestEdits.length === 0 && !explicitTestSyntaxRepair) {
+    return `verification repair only changed test files (${testEdits.join(', ')}); source or harness fix required`;
+  }
+  if (/source behavior only|not tests|without weakening tests/i.test(task.description) && testEdits.length > 0) {
+    return `verification repair changed test files despite source-only instructions (${testEdits.join(', ')})`;
+  }
+  return null;
+}
+
+function isTestPath(rel: string): boolean {
+  return /(^|\/)(tests?|__tests__)\/|(\.|_)(test|spec)\.[A-Za-z0-9]+$/.test(rel);
+}
+
+function withRetryRisk(
+  risks: string[],
+  usedOutputRepairRetry: boolean,
+  usedUnsafeEditRepairRetry = false,
+): string[] {
+  const next = [...risks];
+  if (usedOutputRepairRetry) next.push('provider_output_repair_retry_used');
+  if (usedUnsafeEditRepairRetry) next.push('provider_unsafe_edit_repair_retry_used');
+  return next;
 }
 
 function trimTrailingSlash(value: string): string {

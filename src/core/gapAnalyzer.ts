@@ -17,6 +17,8 @@ import { evaluateScoreGate } from './scoreGate.js';
 import { gradeProjectScore } from './projectScorer.js';
 import { loadMarketResearchReport } from '../research/MarketResearchAgent.js';
 import { analyzeMarketResearchGaps } from './marketGapAnalyzer.js';
+import { loadOfficialModelCatalog, type OfficialModelCatalog } from '../research/OfficialModelCatalog.js';
+import { detectDeliverySurfaces, requiresSurfaceContractMatrix } from './deliverySurfaceDetector.js';
 
 function finding(
   category: string,
@@ -105,7 +107,17 @@ export async function analyzeGaps(
     ...snapshot.build_commands,
     ...snapshot.start_commands,
   ];
-  for (const req of standard.required_commands) {
+  const requiredCommands = new Set(standard.required_commands);
+  if (
+    snapshot.package_manager !== 'unknown' &&
+    snapshot.detected_language !== 'python' &&
+    files.some((f) => /\.(mjs|cjs|js|jsx|ts|tsx)$/.test(f) && !/(^|\/)(tests?|docs?|scripts?)\//.test(f))
+  ) {
+    requiredCommands.add('test');
+    requiredCommands.add('build');
+  }
+
+  for (const req of requiredCommands) {
     if (snapshot.detected_language === 'python' && req === 'pytest' && !hasPythonTestFile) {
       continue;
     }
@@ -243,7 +255,7 @@ export async function analyzeGaps(
     snapshot.detected_language === 'python' &&
     Object.keys(scripts).length > 0 &&
     Object.entries(scripts)
-      .filter(([key]) => !isAllowedCrossRuntimeHarnessScript(key))
+      .filter(([key, script]) => !isAllowedCrossRuntimeHarnessScript(key, script))
       .some(([, s]) => /\bnode\b|npm\b|tsc\b/.test(s))
   ) {
     findings.push(
@@ -293,6 +305,7 @@ export async function analyzeGaps(
     templateFiles.map((f) => readTextSafe(path.join(snapshot.project_path, f))),
   )).join('\n');
   const requirementsText = (await readTextSafe(path.join(snapshot.project_path, 'requirements.txt'))) ?? '';
+  const llmConfigText = (await readTextSafe(path.join(snapshot.project_path, 'llm_config.py'))) ?? '';
   const pyprojectText = (await readTextSafe(path.join(snapshot.project_path, 'pyproject.toml'))) ?? '';
   const constraintsText = (await readTextSafe(path.join(snapshot.project_path, 'constraints.txt'))) ?? '';
   if (isApiBearingProject(snapshot, files, pkg, projectSurfaceText) && !hasApiContractHarness(files, scripts)) {
@@ -344,6 +357,148 @@ export async function analyzeGaps(
       ),
     );
   }
+  const deliverySurfaces = detectDeliverySurfaces({ snapshot, files, pkg, sourceText: projectSurfaceText });
+  if (requiresSurfaceContractMatrix(deliverySurfaces) && !hasDemoSurfaceContractMatrix(files, scripts)) {
+    findings.push(
+      finding(
+        'missing_demo_surface_contract_matrix',
+        'medium',
+        'Specialized demo surfaces lack a productization surface contract',
+        'Browser extensions, notebooks, mobile shells and desktop shells need explicit surface boundaries before agents safely generalize them into products. Without that map, d2p can apply the wrong UI/API/CLI assumptions.',
+        'Add docs/productization-surface-map.md, scripts/surface-contract-check.mjs and a surface:contract-check script that records detected delivery surfaces and verifies their minimum evidence.',
+        ['docs/productization-surface-map.md', 'scripts/surface-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'browser_extension') && !hasSpecializedSurfaceHarness(files, scripts, 'browser-extension', 'extension')) {
+    findings.push(
+      finding(
+        'missing_browser_extension_contract_harness',
+        'medium',
+        'Browser extension demo lacks a manifest and permission contract harness',
+        'Extension demos need explicit manifest, popup/background/content and permission boundaries before productization changes are safe.',
+        'Add docs/browser-extension-contract.md, scripts/browser-extension-contract-check.mjs and an extension:contract-check script.',
+        ['docs/browser-extension-contract.md', 'scripts/browser-extension-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'notebook') && !hasSpecializedSurfaceHarness(files, scripts, 'notebook', 'notebook')) {
+    findings.push(
+      finding(
+        'missing_notebook_contract_harness',
+        'medium',
+        'Notebook demo lacks a reproducibility contract harness',
+        'Notebook demos need parseability and script-conversion boundaries so results are repeatable outside an interactive session.',
+        'Add docs/notebook-contract.md, scripts/notebook-contract-check.mjs and a notebook:contract-check script.',
+        ['docs/notebook-contract.md', 'scripts/notebook-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'mobile_app') && !hasSpecializedSurfaceHarness(files, scripts, 'mobile', 'mobile')) {
+    findings.push(
+      finding(
+        'missing_mobile_contract_harness',
+        'medium',
+        'Mobile app demo lacks a platform contract harness',
+        'Mobile shells need explicit Expo/React Native/Capacitor platform evidence before agents safely expand screens and packaging.',
+        'Add docs/mobile-contract.md, scripts/mobile-contract-check.mjs and a mobile:contract-check script.',
+        ['docs/mobile-contract.md', 'scripts/mobile-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'desktop_app') && !hasSpecializedSurfaceHarness(files, scripts, 'desktop', 'desktop')) {
+    findings.push(
+      finding(
+        'missing_desktop_contract_harness',
+        'medium',
+        'Desktop app demo lacks a shell contract harness',
+        'Electron/Tauri demos need explicit shell entry and desktop security boundary checks before UI productization work.',
+        'Add docs/desktop-contract.md, scripts/desktop-contract-check.mjs and a desktop:contract-check script.',
+        ['docs/desktop-contract.md', 'scripts/desktop-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'game_demo') && !hasSpecializedSurfaceHarness(files, scripts, 'game', 'game')) {
+    findings.push(
+      finding(
+        'missing_game_contract_harness',
+        'medium',
+        'Game demo lacks a runtime contract harness',
+        'Game demos need explicit loop, input and asset boundaries before agents safely add mechanics, levels or production UX.',
+        'Add docs/game-contract.md, scripts/game-contract-check.mjs and a game:contract-check script.',
+        ['docs/game-contract.md', 'scripts/game-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'three_d_scene') && !hasSpecializedSurfaceHarness(files, scripts, '3d-scene', '3d')) {
+    findings.push(
+      finding(
+        'missing_3d_scene_contract_harness',
+        'medium',
+        '3D scene demo lacks a renderer contract harness',
+        '3D/WebGL demos can look visually broken while builds pass; productization needs renderer, canvas and asset smoke checks.',
+        'Add docs/3d-scene-contract.md, scripts/3d-scene-contract-check.mjs and a 3d:contract-check script.',
+        ['docs/3d-scene-contract.md', 'scripts/3d-scene-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'ml_model') && !hasSpecializedSurfaceHarness(files, scripts, 'ml-model', 'ml')) {
+    findings.push(
+      finding(
+        'missing_ml_model_contract_harness',
+        'medium',
+        'ML model demo lacks an inference contract harness',
+        'ML demos need model/framework evidence and sample input/output boundaries before agents safely change UI, APIs or packaging.',
+        'Add docs/ml-model-contract.md, scripts/ml-model-contract-check.mjs and an ml:contract-check script.',
+        ['docs/ml-model-contract.md', 'scripts/ml-model-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (deliverySurfaces.some((surface) => surface.id === 'media_pipeline') && !hasSpecializedSurfaceHarness(files, scripts, 'media-pipeline', 'media')) {
+    findings.push(
+      finding(
+        'missing_media_pipeline_contract_harness',
+        'medium',
+        'Media processing demo lacks a pipeline contract harness',
+        'Media demos need explicit input/output format and fixture processing checks before agents safely expand batch, upload or export workflows.',
+        'Add docs/media-pipeline-contract.md, scripts/media-pipeline-contract-check.mjs and a media:contract-check script.',
+        ['docs/media-pipeline-contract.md', 'scripts/media-pipeline-contract-check.mjs', 'package.json'],
+      ),
+    );
+  }
+  if (
+    needsProductCoreSpine(deliverySurfaces.map((surface) => surface.id)) &&
+    hasAnyProductizationHarness(files, scripts) &&
+    !hasProductCoreSpine(files, scripts)
+  ) {
+    findings.push(
+      finding(
+        'demo_shell_without_product_core',
+        'high',
+        'Productization only added a shell, not executable product behavior',
+        'A productized demo cannot be mostly docs, scripts and harnesses. It needs a reachable product core with domain workflows, tests and an entry integration path.',
+        'Add a tested product core spine under src/ and wire at least one runtime entry or command to it.',
+        ['src/product-core.mjs', 'tests/product-core.test.mjs', 'docs/product-core.md', 'package.json'],
+      ),
+    );
+  }
+  if (
+    needsRunnableProductEntry(deliverySurfaces.map((surface) => surface.id)) &&
+    hasAnyProductizationHarness(files, scripts) &&
+    hasProductCoreSpine(files, scripts) &&
+    !hasRunnableProductEntry(deliverySurfaces.map((surface) => surface.id), files, scripts)
+  ) {
+    findings.push(
+      finding(
+        'missing_product_runtime_entry',
+        'high',
+        'Specialized product surface has no runnable product entry',
+        'A visual, mobile or desktop product cannot be treated as complete if users can only run contract checks and tests.',
+        'Add a real runtime entry, start script and runtime-entry check for the detected product surface.',
+        ['package.json', 'scripts/product-runtime-check.mjs', 'index.html', 'App.js'],
+      ),
+    );
+  }
   if (snapshot.detected_language === 'python' && (requirementsText.trim() || pyprojectText.trim())) {
     const dependencySpecs = parsePythonDependencySpecs(requirementsText, pyprojectText);
     if (dependencySpecs.length > 0 && !hasPythonDependencyConstraintPolicy(files)) {
@@ -379,6 +534,7 @@ export async function analyzeGaps(
     const testFiles = files.filter((f) => /(^|\/)tests?\/.*\.py$/.test(f));
     const testTexts = await Promise.all(testFiles.map((f) => readTextSafe(path.join(snapshot.project_path, f))));
     const hasApiTests = testTexts.some((txt) => !!txt && /test_client\(|\/healthz|\/modes|\/start/.test(txt));
+    const hasStartRoute = /@app\.(?:route|post)\(\s*['"]\/start['"]/.test(appPy);
     const productionDeps = `${requirementsText}\n${pyprojectText}`;
 
     if (!/\/healthz|\/health/.test(appPy)) {
@@ -393,7 +549,7 @@ export async function analyzeGaps(
         ),
       );
     }
-    if (!hasFlaskStartConfigGuard(appPy)) {
+    if (hasStartRoute && !hasFlaskStartConfigGuard(appPy)) {
       findings.push(
         finding(
           'missing_config_guard',
@@ -477,7 +633,7 @@ export async function analyzeGaps(
         ),
       );
     }
-    if (!hasFlaskStartInputValidation(appPy)) {
+    if (hasStartRoute && !hasFlaskStartInputValidation(appPy)) {
       findings.push(
         finding(
           'missing_start_input_validation',
@@ -489,7 +645,7 @@ export async function analyzeGaps(
         ),
       );
     }
-    if (!hasActiveGameLimit(appPy, configText)) {
+    if (hasStartRoute && !hasActiveGameLimit(appPy, configText)) {
       findings.push(
         finding(
           'missing_active_game_limit',
@@ -513,7 +669,7 @@ export async function analyzeGaps(
         ),
       );
     }
-    if (testFiles.length > 0 && !hasIndustrialFlaskApiTests(testTexts.join('\n'))) {
+    if (testFiles.length > 0 && !hasIndustrialFlaskApiTests(testTexts.join('\n'), hasStartRoute)) {
       findings.push(
         finding(
           'missing_industrial_api_tests',
@@ -562,8 +718,65 @@ export async function analyzeGaps(
         ),
       );
     }
+    if (hasBrokenLlmProviderSelectContract(templateText, llmConfigText)) {
+      findings.push(
+        finding(
+          'broken_llm_provider_select_options',
+          'high',
+          'LLM provider select renders empty option labels',
+          'The browser UI expects a provider label field, but the public provider presets do not expose it. Users see blank provider choices even though /config returns providers.',
+          'Align the /config provider schema with the UI by exposing label/default_model fields or by making the template fall back to name/id, and add tests for non-empty provider option labels.',
+          ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        ),
+      );
+    }
+    if (hasIncompleteLlmProviderCatalog(templateText, llmConfigText)) {
+      findings.push(
+        finding(
+          'incomplete_llm_provider_catalog',
+          'medium',
+          'LLM provider catalog omits common player-selectable providers',
+          'A public LLM UI should support more than one vendor path. Missing MiniMax, Qwen or custom OpenAI-compatible endpoints prevents players from using their available model/key.',
+          'Expand public provider presets to include DeepSeek, MiniMax, Qwen, OpenAI-compatible and custom endpoint choices with labels and default models.',
+          ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        ),
+      );
+    }
+    if (hasLlmProviderCatalogMissingOfficialModels(templateText, llmConfigText)) {
+      findings.push(
+        finding(
+          'llm_provider_catalog_missing_official_models',
+          'medium',
+          'LLM model catalog is not backed by official model choices',
+          'Provider selection alone is not enough. A public LLM UI needs model choices sourced from provider documentation so players are not forced to type stale or unknown model ids into an empty field.',
+          'Refresh the official model catalog with controlled web access, expose models/default_model/source_url in public provider presets and populate the model selector from those presets.',
+          ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        ),
+      );
+    }
+    const officialModelCatalog = await loadOfficialModelCatalog(snapshot.project_path);
+    if (hasLlmProviderCatalogOutdatedAgainstOfficialRefresh(llmConfigText, officialModelCatalog)) {
+      findings.push(
+        finding(
+          'llm_provider_catalog_outdated_against_official_refresh',
+          'medium',
+          'LLM provider catalog is stale against the refreshed official model catalog',
+          'The project has a refreshed official model catalog, but its public provider presets still expose older defaults or model lists. Users may see stale model choices even after MatrixOmnix has researched current provider docs.',
+          'Re-apply the refreshed official model catalog to llm_config.py and update tests so provider defaults are validated against public_provider_config().',
+          ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        ),
+      );
+    }
   }
-  if (isFrontendUiApp(snapshot, files, pkg)) {
+  const deliverySurfaceIds = deliverySurfaces.map((surface) => surface.id);
+  const hasNonWebProductSurface = deliverySurfaceIds.some((surface) => [
+    'game_demo',
+    'three_d_scene',
+    'mobile_app',
+    'desktop_app',
+    'browser_extension',
+  ].includes(surface));
+  if (isFrontendUiApp(snapshot, files, pkg) && !hasNonWebProductSurface) {
     productMaturity = await assessWebUiProductMaturity(snapshot.project_path, files, pkg);
     if (!hasUiProductVerification(files, scripts)) {
       findings.push(
@@ -695,7 +908,25 @@ export async function analyzeGaps(
       );
     }
     productMaturity = await assessSocialDeductionProductMaturity(snapshot.project_path, files);
-    if (productMaturity.level !== 'market_ready' && productMaturity.level !== 'market_parity_candidate') {
+    const productIntegration = await assessSocialDeductionRuntimeIntegration(snapshot.project_path, files);
+    if (
+      productIntegration.has_backbone_modules &&
+      (!productIntegration.has_runtime_integration ||
+        !productIntegration.has_user_facing_workflows ||
+        !productIntegration.has_end_to_end_verification)
+    ) {
+      findings.push(
+        finding(
+          'disconnected_social_product_backbone',
+          'high',
+          'Social product backbone modules are disconnected from the running app',
+          'A product backbone only counts when players can reach it through the app and tests prove the end-to-end workflow. Isolated modules plus module-only tests inflate maturity without improving the shipped experience.',
+          'Wire account, lobby, moderation, ranking, history and host-control systems into Flask routes/templates and add endpoint or browser workflow tests.',
+          productIntegration.related_files,
+        ),
+      );
+    }
+    if (productMaturity.level !== 'market_ready') {
       findings.push(
         finding(
           'below_social_deduction_market_parity',
@@ -703,7 +934,7 @@ export async function analyzeGaps(
           'Social deduction product maturity is below mature market parity',
           'Engineering readiness is not the same as a mature social game product: market examples include accounts, lobbies, matchmaking, social communication, moderation, rankings, live operations and large role/content systems.',
           `Close missing market capabilities: ${productMaturity.missing_capabilities.slice(0, 6).join(', ')}.`,
-          ['docs/market-parity.md', 'app.py', 'game.py', 'rules.py'],
+          ['docs/market-parity.md', 'app.py', 'game.py', 'rules.py', 'tests/test_app.py'],
         ),
       );
     }
@@ -768,21 +999,52 @@ function addVerificationFailureFindings(
     if (failure.gate !== 'test' && failure.gate !== 'build') continue;
     const command = failure.evidence_command ? `: ${failure.evidence_command}` : '';
     const isTest = failure.gate === 'test';
+    const output = truncateVerificationOutput([
+      failure.stdout_summary,
+      failure.stderr_summary,
+    ].filter(Boolean).join('\n'));
+    const outputPaths = extractRelativePaths(output);
     const flaskRelated =
       snapshot.detected_language === 'python' && snapshot.detected_frameworks.includes('flask')
         ? ['app.py', 'config.py', 'tests/test_app.py']
         : [];
+    const related = outputPaths.length > 0
+      ? outputPaths
+      : (flaskRelated.length > 0 ? flaskRelated : (isTest ? ['tests'] : snapshot.important_files.slice(0, 5)));
     findings.push(
       finding(
         isTest ? 'failed_test_verification' : 'failed_build_verification',
         'blocker',
         `${isTest ? 'Test' : 'Build'} verification failed${command}`,
         'A project with red verification cannot be treated as product-ready, regardless of its file structure.',
-        `Reproduce the failing ${isTest ? 'test' : 'build'} command, fix the root cause, and rerun verification.`,
-        flaskRelated.length > 0 ? flaskRelated : (isTest ? ['tests'] : snapshot.important_files.slice(0, 5)),
+        [
+          `Reproduce the failing ${isTest ? 'test' : 'build'} command, fix the root cause, and rerun verification.`,
+          failure.failure_reason ? `Failure reason: ${failure.failure_reason}` : '',
+          output ? `Recent verification output:\n${output}` : '',
+        ].filter(Boolean).join('\n\n'),
+        related,
       ),
     );
   }
+}
+
+function truncateVerificationOutput(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  return trimmed.length > 2500 ? `${trimmed.slice(0, 2500)}\n... [truncated]` : trimmed;
+}
+
+function extractRelativePaths(text: string): string[] {
+  const out = new Set<string>();
+  const re = /(?:^|[\s("'`>])([A-Za-z0-9_./-]+\.(?:py|js|mjs|ts|tsx|jsx|json|toml|md|yml|yaml|txt|html|css|sh))(?::\d+)?/gm;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const rel = match[1]?.replace(/^\.\//, '');
+    if (!rel || rel.startsWith('/') || rel.includes('..')) continue;
+    if (/^(site-packages|node_modules)\//.test(rel)) continue;
+    out.add(rel);
+  }
+  return Array.from(out).slice(0, 12);
 }
 
 function applyGapScoreGate(
@@ -968,7 +1230,7 @@ function hasCliProjectEvidence(files: string[], pkg: PackageLike): boolean {
 function hasDisallowedNodeScaffold(snapshot: ProjectSnapshot, scripts: Record<string, string>): boolean {
   return snapshot.detected_language === 'python' &&
     Object.entries(scripts)
-      .filter(([key]) => !isAllowedCrossRuntimeHarnessScript(key))
+      .filter(([key, script]) => !isAllowedCrossRuntimeHarnessScript(key, script))
       .some(([, s]) => /\bnode\b|npm\b|tsc\b/.test(s));
 }
 
@@ -976,9 +1238,10 @@ async function readProjectSurfaceText(root: string, files: string[]): Promise<st
   const candidates = files
     .filter((f) =>
       /(^|\/)(app|main|server|api|routes|worker|jobs|tasks|config|settings|database|db|models|schema)\.(py|js|mjs|cjs|ts|tsx)$/.test(f) ||
-      /^(src|app|server|api|routes|config|db|database|models|workers|jobs|tasks)\//.test(f),
+      /^(src|app|server|api|routes|config|db|database|models|workers|jobs|tasks)\//.test(f) ||
+      /(^|\/)(manifest\.json|app\.json|app\.config\.(js|ts)|tauri\.conf\.json)$/.test(f),
     )
-    .filter((f) => /\.(py|js|mjs|cjs|ts|tsx|json|toml|env|yml|yaml)$/.test(f))
+    .filter((f) => /\.(py|js|mjs|cjs|ts|tsx|json|toml|env|yml|yaml|html|ipynb)$/.test(f))
     .slice(0, 80);
   const texts = await Promise.all(candidates.map((f) => readTextSafe(path.join(root, f))));
   return texts.filter((t): t is string => !!t).join('\n');
@@ -1058,6 +1321,92 @@ function hasWorkerContractHarness(files: string[], scripts: Record<string, strin
     /\bworker:contract-check\b|\bworker-contract-check\.mjs\b/.test(scriptBlob);
 }
 
+function hasDemoSurfaceContractMatrix(files: string[], scripts: Record<string, string>): boolean {
+  const scriptBlob = Object.entries(scripts).map(([k, v]) => `${k}:${v}`).join('\n');
+  return files.includes('scripts/surface-contract-check.mjs') &&
+    files.includes('docs/productization-surface-map.md') &&
+    /\bsurface:contract-check\b|\bsurface-contract-check\.mjs\b/.test(scriptBlob);
+}
+
+function hasSpecializedSurfaceHarness(files: string[], scripts: Record<string, string>, filePrefix: string, scriptPrefix: string): boolean {
+  const scriptBlob = Object.entries(scripts).map(([k, v]) => `${k}:${v}`).join('\n');
+  return files.includes(`scripts/${filePrefix}-contract-check.mjs`) &&
+    files.includes(`docs/${filePrefix}-contract.md`) &&
+    new RegExp(`\\b${scriptPrefix}:contract-check\\b|\\b${filePrefix}-contract-check\\.mjs\\b`).test(scriptBlob);
+}
+
+function needsRunnableProductEntry(surfaceIds: string[]): boolean {
+  return surfaceIds.some((surface) => [
+    'game_demo',
+    'three_d_scene',
+    'mobile_app',
+    'desktop_app',
+    'ml_model',
+    'media_pipeline',
+  ].includes(surface));
+}
+
+function hasRunnableProductEntry(surfaceIds: string[], files: string[], scripts: Record<string, string>): boolean {
+  const start = `${scripts.start ?? ''}\n${scripts.dev ?? ''}`;
+  if (surfaceIds.includes('game_demo') || surfaceIds.includes('three_d_scene')) {
+    return files.includes('index.html') && /\b(vite|webpack|parcel|serve|http-server)\b/i.test(start);
+  }
+  if (surfaceIds.includes('mobile_app')) {
+    return files.some((file) => /^(App|app\/index)\.(js|jsx|ts|tsx)$/.test(file)) &&
+      /\b(expo|react-native|capacitor|cordova)\b/i.test(start);
+  }
+  if (surfaceIds.includes('desktop_app')) {
+    return /\b(electron|tauri)\b/i.test(start) &&
+      files.some((file) => /^src-tauri\/|(^|\/)electron\.(js|mjs|cjs|ts)$/.test(file));
+  }
+  if (surfaceIds.includes('ml_model') || surfaceIds.includes('media_pipeline')) {
+    return files.some((file) => /^bin\/product\.(js|mjs|cjs)$/.test(file)) &&
+      /\b(bin\/product\.(js|mjs|cjs)|product:run)\b/.test(start);
+  }
+  return true;
+}
+
+function needsProductCoreSpine(surfaceIds: string[]): boolean {
+  return surfaceIds.some((surface) => [
+    'spa_ui',
+    'api',
+    'cli',
+    'browser_extension',
+    'notebook',
+    'mobile_app',
+    'desktop_app',
+    'game_demo',
+    'three_d_scene',
+    'ml_model',
+    'media_pipeline',
+    'llm_app',
+  ].includes(surface));
+}
+
+function hasAnyProductizationHarness(files: string[], scripts: Record<string, string>): boolean {
+  const scriptBlob = Object.entries(scripts).map(([key, value]) => `${key}:${value}`).join('\n');
+  return files.some((file) =>
+    /^scripts\/.*(?:contract-check|product-check|render-smoke)\.mjs$/.test(file) ||
+    /^docs\/.*(?:contract|productization|surface-map)\.md$/.test(file),
+  ) || /\b(?:contract-check|ui:check|product-check)\b/.test(scriptBlob);
+}
+
+function hasProductCoreSpine(files: string[], scripts: Record<string, string>): boolean {
+  const scriptBlob = Object.entries(scripts).map(([key, value]) => `${key}:${value}`).join('\n');
+  const hasCoreSource = files.some((file) =>
+    /^(src|app|lib|domain|core|services)\/(?:product[-_]core|product\/|domain\/|features\/|workflows\/).*\.(mjs|js|ts|py)$/.test(file) ||
+    /^src\/product-core\.mjs$/.test(file),
+  );
+  const hasCoreTest = files.some((file) =>
+    /^(tests?|src)\/.*product[-_]core.*\.(test|spec)?\.(mjs|js|ts|py)$/.test(file) ||
+    /^tests\/product-core\.test\.mjs$/.test(file) ||
+    /^tests\/test_product_core\.py$/.test(file),
+  );
+  const hasCoreDoc = files.includes('docs/product-core.md') || files.some((file) => /^docs\/.*product.*core.*\.md$/.test(file));
+  const hasCoreCommand = /\bproduct:core-check\b|product-core\.test|product-core\.mjs/.test(scriptBlob);
+  return hasCoreSource && hasCoreTest && hasCoreDoc && hasCoreCommand;
+}
+
 function hasFlaskStartConfigGuard(appPy: string): boolean {
   const match = /@app\.(?:route|post)\(\s*["']\/start["'][\s\S]*/.exec(appPy);
   if (!match) return false;
@@ -1099,10 +1448,14 @@ function hasStructuredLogging(appPy: string): boolean {
     /logger\.(?:info|warning|exception|error)\s*\(/.test(appPy);
 }
 
-function hasIndustrialFlaskApiTests(testText: string): boolean {
-  return /X-Content-Type-Options/.test(testText) &&
-    /invalid_mode|invalid mode|unsupported mode/i.test(testText) &&
-    /too_many|active game|MAX_ACTIVE_GAMES|max_active_games/i.test(testText);
+function hasIndustrialFlaskApiTests(testText: string, hasStartRoute: boolean): boolean {
+  if (!/X-Content-Type-Options/.test(testText)) return false;
+  if (hasStartRoute) {
+    return /invalid_mode|invalid mode|unsupported mode/i.test(testText) &&
+      /too_many|active game|MAX_ACTIVE_GAMES|max_active_games/i.test(testText);
+  }
+  return /invalid_text|missing_text|invalid_message|missing_message|bad request|400/.test(testText) &&
+    /\/summarize|\/chat|\/healthz|test_client\(/.test(testText);
 }
 
 function hasRegressionTests(files: string[], testText: string): boolean {
@@ -1127,6 +1480,50 @@ function hasPlayerSuppliedLlmProviderConfig(text: string): boolean {
   return /resolve_llm_config\s*\(|public_provider_config\s*\(|llmApiKey|api_key["']?\s*:\s*|body\.get\(\s*["']api_key["']\s*\)/.test(text) &&
     /provider|base_url|model/i.test(text) &&
     /minimax|qwen|deepseek|custom/i.test(text);
+}
+
+function hasBrokenLlmProviderSelectContract(templateText: string, llmConfigText: string): boolean {
+  if (!/id=["']llmProvider["']/.test(templateText)) return false;
+  if (!/\bproviders\b/.test(llmConfigText)) return false;
+  const templateRequiresLabel = /\bp\.label\b|provider\?\.label|\[['"]label['"]\]/.test(templateText);
+  if (!templateRequiresLabel) return false;
+  const templateHasFallback = /\bp\.label\s*(?:\|\||\?\?)\s*(?:p\.name|p\.id)|provider\?\.label\s*(?:\|\||\?\?)/.test(templateText);
+  if (templateHasFallback) return false;
+  const providersExposeLabel = /["']label["']\s*:|default_model/.test(llmConfigText);
+  const providersExposeNameOnly = /["']name["']\s*:/.test(llmConfigText);
+  return providersExposeNameOnly && !providersExposeLabel;
+}
+
+function hasIncompleteLlmProviderCatalog(templateText: string, llmConfigText: string): boolean {
+  if (!/id=["']llmProvider["']/.test(templateText)) return false;
+  if (!/public_provider_config\s*\(|\bproviders\b/.test(llmConfigText)) return false;
+  const text = llmConfigText.toLowerCase();
+  return ['deepseek', 'minimax', 'qwen', 'openai', 'custom'].some((provider) => !text.includes(provider));
+}
+
+function hasLlmProviderCatalogMissingOfficialModels(templateText: string, llmConfigText: string): boolean {
+  if (!/id=["']llmProvider["']/.test(templateText)) return false;
+  if (!/id=["']llmModel["']|llmModel/.test(templateText)) return false;
+  if (!/public_provider_config\s*\(|\bproviders\b/.test(llmConfigText)) return false;
+  const text = llmConfigText.toLowerCase();
+  const requiredProviders = ['deepseek', 'minimax', 'qwen', 'openai', 'custom'];
+  if (requiredProviders.some((provider) => !text.includes(provider))) return false;
+  const exposesModelChoices = /["']models["']\s*:/.test(llmConfigText) &&
+    /["']default_model["']\s*:/.test(llmConfigText);
+  const citesOfficialSources = /["']source_url["']\s*:/.test(llmConfigText) &&
+    /(platform\.openai\.com|api-docs\.deepseek\.com|help\.aliyun\.com|alibabacloud\.com\/help\/en\/model-studio|platform\.minimax\.io|docs\.minimax\.io|official_docs)/i.test(llmConfigText);
+  return !exposesModelChoices || !citesOfficialSources;
+}
+
+function hasLlmProviderCatalogOutdatedAgainstOfficialRefresh(llmConfigText: string, catalog: OfficialModelCatalog | null): boolean {
+  if (!catalog) return false;
+  if (!/public_provider_config\s*\(|\bPROVIDER_PRESETS\b|\bproviders\b/.test(llmConfigText)) return false;
+  for (const provider of catalog.providers) {
+    if (provider.id === 'custom') continue;
+    if (!provider.default_model || provider.models.length === 0) continue;
+    if (!llmConfigText.includes(provider.default_model)) return true;
+  }
+  return false;
 }
 
 function isFrontendUiApp(
@@ -1201,18 +1598,22 @@ function hasSingleFileDemoIntakeHarness(files: string[], scripts: Record<string,
     (Object.keys(scripts).length === 0 || /\bdemo:intake-check\b|\bdemo-runtime-check\.mjs\b/.test(scriptBlob));
 }
 
-function isAllowedCrossRuntimeHarnessScript(key: string): boolean {
-  return [
+function isAllowedCrossRuntimeHarnessScript(key: string, script = ''): boolean {
+  if ([
     'demo:intake-check',
     'cli:contract-check',
     'api:contract-check',
+    'contract:check',
     'config:contract-check',
     'data:contract-check',
     'worker:contract-check',
     'ui:check',
     'ui:render-check',
     'ui:e2e',
-  ].includes(key);
+  ].includes(key)) {
+    return true;
+  }
+  return /\bnode\s+scripts\/(?:demo-runtime-check|cli-contract-check|api-contract-check|config-contract-check|data-contract-check|worker-contract-check)\.mjs\b/.test(script);
 }
 
 function isCliProject(
@@ -1620,8 +2021,10 @@ async function assessSocialDeductionProductMaturity(
   root: string,
   files: string[],
 ): Promise<ProductMaturityAssessment> {
+  const integration = await assessSocialDeductionRuntimeIntegration(root, files);
   const implementationFiles = files.filter((f) =>
     /^(app|game|rules|player|prompts|config|wsgi)\.py$/.test(f) ||
+    /^(accounts|auth|profiles|users|lobby|rooms|matchmaking|communication|moderation|ranking|ranked|history|storage|roles_catalog|role_registry|liveops|admin|host_controls)\.py$/.test(f) ||
     /(^|\/)tests?\/.*\.(py|ts|js)$/.test(f) ||
     /(^|\/)(src|server|backend|api|routes|models|services)\//.test(f),
   );
@@ -1707,11 +2110,29 @@ async function assessSocialDeductionProductMaturity(
       hasText(/\b(custom game|host mode|host controls|spectator|private room|room settings|skip discussion|anonymous players)\b/),
       ['custom room/host mode controls'],
     ),
+    capability(
+      'runtime_product_integration',
+      'Runtime integration of product systems',
+      integration.has_runtime_integration,
+      ['app.py/game.py imports or invokes product systems'],
+    ),
+    capability(
+      'user_facing_product_workflows',
+      'User-facing product workflows',
+      integration.has_user_facing_workflows,
+      ['Flask routes/templates expose product workflows'],
+    ),
+    capability(
+      'end_to_end_product_workflow_verification',
+      'End-to-end product workflow verification',
+      integration.has_end_to_end_verification,
+      ['tests exercise product workflows through the running app surface'],
+    ),
   ];
   const met = capabilities.filter((c) => c.met).length;
   const score = Math.round((met / capabilities.length) * 100);
   const missing = capabilities.filter((c) => !c.met && c.required_for_market_parity).map((c) => c.label);
-  const level = productMaturityLevel(score);
+  const level = productMaturityLevel(score, missing.length);
   return {
     domain: 'social_deduction_game',
     target_market: 'mature online werewolf/social deduction product',
@@ -1726,6 +2147,99 @@ async function assessSocialDeductionProductMaturity(
       'Official Chinese Werewolf listings: real-time voice, fast matchmaking, voice judge guidance, modes, seasons and governance',
     ],
   };
+}
+
+interface SocialDeductionRuntimeIntegrationAssessment {
+  has_backbone_modules: boolean;
+  has_runtime_integration: boolean;
+  has_user_facing_workflows: boolean;
+  has_end_to_end_verification: boolean;
+  related_files: string[];
+}
+
+const SOCIAL_PRODUCT_BACKBONE_MODULES = [
+  'accounts.py',
+  'lobby.py',
+  'communication.py',
+  'moderation.py',
+  'ranking.py',
+  'history.py',
+  'roles_catalog.py',
+  'liveops.py',
+  'admin.py',
+  'host_controls.py',
+];
+
+async function assessSocialDeductionRuntimeIntegration(
+  root: string,
+  files: string[],
+): Promise<SocialDeductionRuntimeIntegrationAssessment> {
+  const backboneModules = files.filter((file) => SOCIAL_PRODUCT_BACKBONE_MODULES.includes(file));
+  const runtimeFiles = files.filter((file) =>
+    /^(app|game|main|server|wsgi)\.py$/.test(file) ||
+    /^templates\/.*\.(html|jinja2?)$/.test(file) ||
+    /^static\/.*\.(js|ts|html)$/.test(file) ||
+    /^src\/.*\.(py|js|ts|tsx|jsx|vue)$/.test(file),
+  );
+  const testFiles = files.filter((file) => /(^|\/)tests?\/.*\.(py|ts|js|tsx|jsx)$/.test(file));
+  const runtimeBlob = (await Promise.all(
+    runtimeFiles.slice(0, 100).map((file) => readTextSafe(path.join(root, file))),
+  )).filter((text): text is string => Boolean(text)).join('\n').toLowerCase();
+  const testBlob = (await Promise.all(
+    testFiles.slice(0, 80).map((file) => readTextSafe(path.join(root, file))),
+  )).filter((text): text is string => Boolean(text)).join('\n').toLowerCase();
+
+  const hasBackboneModules = backboneModules.length > 0;
+  const hasRuntimeIntegration =
+    socialProductRuntimeSignalCount(runtimeBlob) >= 3 ||
+    /\b(from|import)\s+(accounts|lobby|communication|moderation|ranking|history|roles_catalog|liveops|admin|host_controls)\b/.test(runtimeBlob) ||
+    /\b(accountstore|lobbymanager|websocketpresencehub|moderationlog|rankedseasonleaderboard|sqlitematchhistory|liveopsstore|adminconsole|hostcontrols)\b/.test(runtimeBlob);
+  const hasUserFacingWorkflows = socialProductRouteSignalCount(runtimeBlob) >= 4;
+  const hasEndToEndVerification =
+    /\b(test_client|client\.(get|post|put|delete)|page\.goto|fetch\()/.test(testBlob) &&
+    socialProductRouteSignalCount(testBlob) >= 3;
+
+  return {
+    has_backbone_modules: hasBackboneModules,
+    has_runtime_integration: hasRuntimeIntegration,
+    has_user_facing_workflows: hasUserFacingWorkflows,
+    has_end_to_end_verification: hasEndToEndVerification,
+    related_files: Array.from(new Set([
+      ...backboneModules,
+      ...runtimeFiles.filter((file) => /^(app|game)\.py$|^templates\//.test(file)),
+      ...testFiles.filter((file) => /test_(app|product|e2e|ui|workflow)|\.(spec|test)\./.test(file)),
+    ])).slice(0, 16),
+  };
+}
+
+function socialProductRuntimeSignalCount(text: string): number {
+  return countSignals(text, [
+    /\b(accountstore|profile|login|session|accounts?)\b/,
+    /\b(lobbymanager|lobby|room|matchmaking|ready_check|invite)\b/,
+    /\b(websocket|presence|chat|voice|communication)\b/,
+    /\b(moderation|report_player|report|mute|block_user|ban|anti_abuse)\b/,
+    /\b(rankedseasonleaderboard|ranked|leaderboard|rating|mmr|season)\b/,
+    /\b(sqlitematchhistory|match_history|replay_store|history|replay)\b/,
+    /\b(role_registry|roles_catalog|mode_catalog|role catalog)\b/,
+    /\b(liveops|inventory|shop|cosmetic|currency|reward)\b/,
+    /\b(adminconsole|admin|metrics|audit|rate_limit)\b/,
+    /\b(hostcontrols|host controls|private_room|room settings|custom game)\b/,
+  ]);
+}
+
+function socialProductRouteSignalCount(text: string): number {
+  return countSignals(text, [
+    /["'`](?:\/[^"'`]*)?(?:login|profile|session|account)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:lobby|room|matchmaking|ready|invite)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:chat|voice|presence|websocket|communication)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:moderation|report|mute|block|ban)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:ranked|leaderboard|rating|season)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:history|replay|match-history)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:roles|modes|catalog)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:shop|inventory|cosmetic|reward|liveops)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:admin|metrics|audit)s?\b/,
+    /["'`](?:\/[^"'`]*)?(?:host|private-room|room-settings|custom-game)s?\b/,
+  ]);
 }
 
 async function assessWebUiProductMaturity(
@@ -1823,7 +2337,7 @@ async function assessWebUiProductMaturity(
     domain: 'web_ui_app',
     target_market: 'shippable responsive web UI product',
     score,
-    level: productMaturityLevel(score),
+    level: productMaturityLevel(score, missing.length),
     summary: `Detected ${met}/${capabilities.length} shippable UI capabilities.`,
     capabilities,
     missing_capabilities: missing,
@@ -1844,7 +2358,8 @@ function capability(
   return { id, label, met, evidence: met ? evidence : [], required_for_market_parity: true };
 }
 
-function productMaturityLevel(score: number): ProductMaturityAssessment['level'] {
+function productMaturityLevel(score: number, missingRequiredCapabilities = 0): ProductMaturityAssessment['level'] {
+  if (missingRequiredCapabilities > 0 && score >= 90) return 'market_parity_candidate';
   if (score >= 90) return 'market_ready';
   if (score >= 70) return 'market_parity_candidate';
   if (score >= 50) return 'domain_product_candidate';

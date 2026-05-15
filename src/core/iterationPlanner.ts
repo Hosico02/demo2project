@@ -33,7 +33,11 @@ export function planIteration(
   const qaFocusCases = selectQaFocusCases(opts.qaCases ?? []);
   const sortedFindings = gapReport.findings
     .slice()
-    .sort((a, b) => sevRank(a.severity) - sevRank(b.severity));
+    .sort((a, b) => {
+      const findingDelta = planFindingRank(a) - planFindingRank(b);
+      if (findingDelta !== 0) return findingDelta;
+      return sevRank(a.severity) - sevRank(b.severity);
+    });
   const tasks: AgentTask[] = [];
   const selectedFindings: typeof sortedFindings = [];
   const seenTaskKeys = new Set<string>();
@@ -43,6 +47,7 @@ export function planIteration(
       f,
       iterationId,
       tasks.length,
+      snapshot.detected_language,
       snapshot.test_commands,
       snapshot.build_commands,
     );
@@ -55,9 +60,9 @@ export function planIteration(
   }
   applyQaFocus(tasks, qaFocusCases);
 
-  const riskLevel: Severity = selectedFindings.some((f) => f.severity === 'blocker')
+  const riskLevel: Severity = gapReport.findings.some((f) => f.severity === 'blocker')
     ? 'blocker'
-    : selectedFindings.some((f) => f.severity === 'high')
+    : gapReport.findings.some((f) => f.severity === 'high')
       ? 'high'
       : 'medium';
 
@@ -150,10 +155,50 @@ function sevRank(s: Severity): number {
   }
 }
 
+function planFindingRank(f: GapReport['findings'][number]): number {
+  if (/^failed_.*verification$|^repair_failed_verification$/.test(f.category)) return 0;
+  if (f.category === 'no_python_tests') return 1;
+  if (f.category === 'missing_required_command' && /\bpytest\b/.test(f.message)) return 1;
+  if (isProductContractOrSurfaceCategory(f.category)) return 2;
+  return 3;
+}
+
+function isProductContractOrSurfaceCategory(category: string): boolean {
+  return [
+    'single_file_demo_without_intake_harness',
+    'missing_cli_contract_harness',
+    'missing_api_contract_harness',
+    'missing_config_contract_harness',
+    'missing_data_migration_harness',
+    'missing_worker_contract_harness',
+    'missing_demo_surface_contract_matrix',
+    'missing_browser_extension_contract_harness',
+    'missing_notebook_contract_harness',
+    'missing_mobile_contract_harness',
+    'missing_desktop_contract_harness',
+    'missing_game_contract_harness',
+    'missing_3d_scene_contract_harness',
+    'missing_ml_model_contract_harness',
+    'missing_media_pipeline_contract_harness',
+    'demo_shell_without_product_core',
+    'missing_product_runtime_entry',
+    'missing_ui_product_verification',
+    'below_web_ui_product_maturity',
+    'missing_ui_runtime_render_smoke',
+    'ui_unimplemented_hosted_service_claim',
+    'missing_user_llm_provider_config',
+    'broken_llm_provider_select_options',
+    'incomplete_llm_provider_catalog',
+    'llm_provider_catalog_missing_official_models',
+    'llm_provider_catalog_outdated_against_official_refresh',
+  ].includes(category);
+}
+
 function buildTaskForFinding(
   f: GapReport['findings'][number],
   iterationId: string,
   idx: number,
+  detectedLanguage: string,
   testCommands: string[],
   buildCommands: string[],
 ): AgentTask {
@@ -347,6 +392,182 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'missing_demo_surface_contract_matrix':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Add demo surface contract matrix',
+        description: f.message,
+        acceptance_criteria: [
+          'docs/productization-surface-map.md records detected delivery surfaces and evidence',
+          'scripts/surface-contract-check.mjs verifies specialized surface evidence without network access',
+          'package scripts expose surface:contract-check',
+          'surface map explains why agents must not apply unrelated UI/API/CLI assumptions',
+        ],
+        expected_changed_files: ['docs/productization-surface-map.md', 'scripts/surface-contract-check.mjs', 'package.json'],
+        verification_commands: ['node scripts/surface-contract-check.mjs'],
+        priority: f.severity,
+        status: 'pending',
+      };
+    case 'missing_browser_extension_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add browser extension contract harness',
+        [
+          'docs/browser-extension-contract.md documents manifest, popup/background/content and permission boundaries',
+          'scripts/browser-extension-contract-check.mjs validates manifest.json and referenced popup files',
+          'package scripts expose extension:contract-check',
+        ],
+        ['docs/browser-extension-contract.md', 'scripts/browser-extension-contract-check.mjs', 'package.json'],
+        'node scripts/browser-extension-contract-check.mjs',
+      );
+    case 'missing_notebook_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add notebook reproducibility contract harness',
+        [
+          'docs/notebook-contract.md documents the notebook-to-repeatable-script boundary',
+          'scripts/notebook-contract-check.mjs validates notebooks are parseable and have cell arrays',
+          'package scripts expose notebook:contract-check',
+        ],
+        ['docs/notebook-contract.md', 'scripts/notebook-contract-check.mjs', 'package.json'],
+        'node scripts/notebook-contract-check.mjs',
+      );
+    case 'missing_mobile_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add mobile app contract harness',
+        [
+          'docs/mobile-contract.md documents Expo/React Native/Capacitor platform evidence',
+          'scripts/mobile-contract-check.mjs validates mobile config or platform directories',
+          'package scripts expose mobile:contract-check',
+        ],
+        ['docs/mobile-contract.md', 'scripts/mobile-contract-check.mjs', 'package.json'],
+        'node scripts/mobile-contract-check.mjs',
+      );
+    case 'missing_desktop_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add desktop app contract harness',
+        [
+          'docs/desktop-contract.md documents Electron/Tauri shell entry and security boundary',
+          'scripts/desktop-contract-check.mjs validates desktop shell evidence',
+          'package scripts expose desktop:contract-check',
+        ],
+        ['docs/desktop-contract.md', 'scripts/desktop-contract-check.mjs', 'package.json'],
+        'node scripts/desktop-contract-check.mjs',
+      );
+    case 'missing_game_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add game runtime contract harness',
+        [
+          'docs/game-contract.md documents game loop, input and asset boundaries',
+          'scripts/game-contract-check.mjs validates game runtime evidence',
+          'package scripts expose game:contract-check',
+        ],
+        ['docs/game-contract.md', 'scripts/game-contract-check.mjs', 'package.json'],
+        'node scripts/game-contract-check.mjs',
+      );
+    case 'missing_3d_scene_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add 3D scene contract harness',
+        [
+          'docs/3d-scene-contract.md documents renderer, canvas and asset boundaries',
+          'scripts/3d-scene-contract-check.mjs validates WebGL/3D scene evidence',
+          'package scripts expose 3d:contract-check',
+        ],
+        ['docs/3d-scene-contract.md', 'scripts/3d-scene-contract-check.mjs', 'package.json'],
+        'node scripts/3d-scene-contract-check.mjs',
+      );
+    case 'missing_ml_model_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add ML model contract harness',
+        [
+          'docs/ml-model-contract.md documents model artifacts, sample inputs and output schemas',
+          'scripts/ml-model-contract-check.mjs validates model/framework evidence',
+          'package scripts expose ml:contract-check',
+        ],
+        ['docs/ml-model-contract.md', 'scripts/ml-model-contract-check.mjs', 'package.json'],
+        'node scripts/ml-model-contract-check.mjs',
+      );
+    case 'missing_media_pipeline_contract_harness':
+      return specializedSurfaceTask(
+        iterationId,
+        f,
+        'Add media pipeline contract harness',
+        [
+          'docs/media-pipeline-contract.md documents media input/output and fixture processing boundaries',
+          'scripts/media-pipeline-contract-check.mjs validates media pipeline evidence',
+          'package scripts expose media:contract-check',
+        ],
+        ['docs/media-pipeline-contract.md', 'scripts/media-pipeline-contract-check.mjs', 'package.json'],
+        'node scripts/media-pipeline-contract-check.mjs',
+      );
+    case 'demo_shell_without_product_core':
+      if (detectedLanguage === 'python') {
+        return {
+          id: shortId('task'),
+          iteration_id: iterationId,
+          assigned_to: 'executor',
+          title: 'Implement product core spine',
+          description: f.message,
+          acceptance_criteria: [
+            'source-level product core exists outside docs/scripts/test-only harnesses',
+            'product core exposes capabilities and executable workflows',
+            'tests exercise product core behavior directly',
+            'at least one runtime entry or command is wired to the product core when applicable',
+          ],
+          expected_changed_files: ['src/product_core.py', 'tests/test_product_core.py', 'docs/product-core.md', 'package.json'],
+          verification_commands: ['python3 -m pytest tests/test_product_core.py -q'],
+          priority: 'high',
+          status: 'pending',
+        };
+      }
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Implement product core spine',
+        description: f.message,
+        acceptance_criteria: [
+          'source-level product core exists outside docs/scripts/test-only harnesses',
+          'product core exposes capabilities and executable workflows',
+          'tests exercise product core behavior directly',
+          'at least one runtime entry or command is wired to the product core when applicable',
+        ],
+        expected_changed_files: ['src/product-core.mjs', 'tests/product-core.test.mjs', 'docs/product-core.md', 'package.json'],
+        verification_commands: ['node --test tests/product-core.test.mjs'],
+        priority: f.severity,
+        status: 'pending',
+      };
+    case 'missing_product_runtime_entry':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Add product runtime entry',
+        description: f.message,
+        acceptance_criteria: [
+          'detected product surface has a user-runnable start command',
+          'runtime entry loads the existing demo surface instead of only adding docs or tests',
+          'scripts/product-runtime-check.mjs validates the runtime entry without launching a browser or device',
+        ],
+        expected_changed_files: ['package.json', 'scripts/product-runtime-check.mjs', 'index.html', 'App.js'],
+        verification_commands: ['node scripts/product-runtime-check.mjs'],
+        priority: f.severity,
+        status: 'pending',
+      };
     case 'no_ci':
     case 'misaligned_ci':
       return {
@@ -498,7 +719,7 @@ function buildTaskForFinding(
         iteration_id: iterationId,
         assigned_to: 'executor',
         title: 'Repair failing project verification',
-        description: f.message,
+        description: [f.message, f.suggested_fix].filter(Boolean).join('\n\n'),
         acceptance_criteria: [
           'the failing verification command is reproduced',
           'the root cause is fixed in source or tests',
@@ -581,6 +802,43 @@ function buildTaskForFinding(
           'tests cover provider resolution, redaction and missing-key validation',
         ],
         expected_changed_files: ['app.py', 'player.py', 'game.py', 'templates/index.html', 'llm_config.py', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: f.severity,
+        status: 'pending',
+      };
+    case 'broken_llm_provider_select_options':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Repair LLM provider select option labels',
+        description: f.message,
+        acceptance_criteria: [
+          'public provider presets expose non-empty UI labels and default models',
+          'template option rendering falls back from label to name/id instead of producing blank options',
+          'tests prove every provider preset has a non-empty select label',
+        ],
+        expected_changed_files: ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: f.severity,
+        status: 'pending',
+      };
+    case 'incomplete_llm_provider_catalog':
+    case 'llm_provider_catalog_missing_official_models':
+    case 'llm_provider_catalog_outdated_against_official_refresh':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Expand player-selectable LLM provider catalog',
+        description: f.message,
+        acceptance_criteria: [
+          'public provider presets include DeepSeek, MiniMax, Qwen, OpenAI-compatible and custom endpoints',
+          'provider presets include non-empty labels, default models and model option lists where applicable',
+          'provider model options cite official model documentation sources',
+          'tests prove supported provider coverage and no API keys are exposed',
+        ],
+        expected_changed_files: ['llm_config.py', 'templates/index.html', 'tests/test_llm_config.py'],
         verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
         priority: f.severity,
         status: 'pending',
@@ -692,20 +950,51 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'disconnected_social_product_backbone':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Integrate social product backbone into app workflows',
+        description: f.message,
+        acceptance_criteria: [
+          'Flask runtime imports and invokes product backbone systems',
+          'browser-visible routes or controls expose account, lobby, moderation, ranking, history and host workflows',
+          'endpoint tests exercise product workflows through the running app surface',
+        ],
+        expected_changed_files: ['app.py', 'templates/index.html', 'tests/test_product_integration.py', 'docs/market-parity.md'],
+        verification_commands: ['python3 -m pytest tests/test_product_integration.py -q'],
+        priority: f.severity,
+        status: 'pending',
+      };
     case 'below_social_deduction_market_parity':
       return {
         id: shortId('task'),
         iteration_id: iterationId,
         assigned_to: 'executor',
-        title: 'Define social deduction market parity roadmap',
+        title: 'Implement social deduction product backbone',
         description: f.message,
         acceptance_criteria: [
-          'docs/market-parity.md compares current scope against mature social deduction products',
-          'roadmap separates engineering baseline, domain product candidate and market parity work',
-          'missing capabilities are tied to concrete implementation areas, not score-only documentation',
+          'market parity backbone modules exist for account/profile, lobby/matchmaking, moderation, ranking, history, liveops, admin and host controls',
+          'tests/test_product_backbone.py exercises the product backbone as executable behavior',
+          'docs/market-parity.md separates implemented backbone from capabilities that still need production infrastructure',
         ],
-        expected_changed_files: ['docs/market-parity.md'],
-        verification_commands: ['test -s docs/market-parity.md'],
+        expected_changed_files: [
+          'accounts.py',
+          'lobby.py',
+          'communication.py',
+          'moderation.py',
+          'ranking.py',
+          'history.py',
+          'roles_catalog.py',
+          'liveops.py',
+          'admin.py',
+          'host_controls.py',
+          'tests/test_product_backbone.py',
+          'docs/market-parity.md',
+          'package.json',
+        ],
+        verification_commands: ['python3 -m pytest tests/test_product_backbone.py -q'],
         priority: f.severity,
         status: 'pending',
       };
@@ -769,6 +1058,28 @@ function buildTaskForFinding(
         status: 'pending',
       };
   }
+}
+
+function specializedSurfaceTask(
+  iterationId: string,
+  f: GapReport['findings'][number],
+  title: string,
+  acceptanceCriteria: string[],
+  expectedChangedFiles: string[],
+  verificationCommand: string,
+): AgentTask {
+  return {
+    id: shortId('task'),
+    iteration_id: iterationId,
+    assigned_to: 'executor',
+    title,
+    description: f.message,
+    acceptance_criteria: acceptanceCriteria,
+    expected_changed_files: expectedChangedFiles,
+    verification_commands: [verificationCommand],
+    priority: f.severity,
+    status: 'pending',
+  };
 }
 
 function fileSuffix(files: string[]): string {

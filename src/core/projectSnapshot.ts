@@ -120,6 +120,7 @@ export async function takeSnapshot(projectPath: string): Promise<ProjectSnapshot
     'app.py',
     'main.py',
     'cli.py',
+    'bin',
     'Dockerfile',
     '.github/workflows',
     'src',

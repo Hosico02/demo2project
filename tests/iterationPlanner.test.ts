@@ -138,7 +138,7 @@ describe('iterationPlanner', () => {
           severity: 'blocker',
           message: 'Test verification failed: python3 -m pytest -q',
           why_it_matters: '',
-          suggested_fix: '',
+          suggested_fix: 'Recent verification output:\nAssertionError: config contract omitted WW_ALLOW_SERVER_LLM_KEY_FALLBACK',
           related_files: ['app.py', 'config.py', 'tests/test_app.py'],
         },
       ],
@@ -151,6 +151,7 @@ describe('iterationPlanner', () => {
 
     expect(repair).toBeTruthy();
     expect(repair?.priority).toBe('blocker');
+    expect(repair?.description).toContain('WW_ALLOW_SERVER_LLM_KEY_FALLBACK');
     expect(repair?.expected_changed_files).toContain('tests/test_app.py');
     expect(repair?.verification_commands).toEqual(['python3 -m pytest -q']);
   });
@@ -193,6 +194,47 @@ describe('iterationPlanner', () => {
     expect(deps).toBeTruthy();
     expect(deps?.expected_changed_files).toContain('constraints.txt');
     expect(deps?.verification_commands).toContain('python3 -m pytest -q');
+  });
+
+  it('plans Python product core verification for Python demo shells', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/python-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['README.md', 'app.py', 'requirements.txt', 'tests'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-product-core',
+          category: 'demo_shell_without_product_core',
+          severity: 'high',
+          message: 'Productization only added a shell',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['src/product_core.py', 'tests/test_product_core.py'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'add product core');
+    const task = plan.tasks.find((t) => t.title === 'Implement product core spine');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('src/product_core.py');
+    expect(task?.expected_changed_files).toContain('tests/test_product_core.py');
+    expect(task?.verification_commands).toEqual(['python3 -m pytest tests/test_product_core.py -q']);
   });
 
   it('plans Flask regression tests and operational docs', () => {
@@ -356,11 +398,54 @@ describe('iterationPlanner', () => {
     } satisfies GapReport;
 
     const plan = planner.plan(gap, 'reach mature social deduction product parity');
-    const task = plan.tasks.find((t) => t.title === 'Define social deduction market parity roadmap');
+    const task = plan.tasks.find((t) => t.title === 'Implement social deduction product backbone');
 
     expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('accounts.py');
+    expect(task?.expected_changed_files).toContain('tests/test_product_backbone.py');
     expect(task?.expected_changed_files).toContain('docs/market-parity.md');
     expect(task?.acceptance_criteria.join('\n')).toContain('market parity');
+  });
+
+  it('plans runtime integration when social product backbone is disconnected', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['README.md', 'app.py', 'templates/index.html'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 80, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-disconnected',
+          category: 'disconnected_social_product_backbone',
+          severity: 'high',
+          message: 'Social product backbone modules are disconnected from the running app',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['app.py', 'accounts.py', 'lobby.py', 'tests/test_product_backbone.py'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'make the product workflow actually usable');
+    const task = plan.tasks.find((t) => t.title === 'Integrate social product backbone into app workflows');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('app.py');
+    expect(task?.expected_changed_files).toContain('tests/test_product_integration.py');
+    expect(task?.verification_commands).toContain('python3 -m pytest tests/test_product_integration.py -q');
   });
 
   it('plans a source-cited market research roadmap from dynamic competitor gaps', () => {
@@ -440,6 +525,47 @@ describe('iterationPlanner', () => {
     expect(task?.expected_changed_files).toContain('llm_config.py');
     expect(task?.expected_changed_files).toContain('templates/index.html');
     expect(task?.acceptance_criteria.join('\n')).toContain('DeepSeek');
+    expect(task?.verification_commands).toContain('python3 -m pytest tests/test_llm_config.py -q');
+  });
+
+  it('plans LLM provider select contract repair when option labels render empty', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/llm-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['app.py', 'llm_config.py', 'templates/index.html'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-empty-provider-select',
+          category: 'broken_llm_provider_select_options',
+          severity: 'high',
+          message: 'LLM provider select renders empty option labels',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['llm_config.py', 'templates/index.html'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'fix blank provider options');
+    const task = plan.tasks.find((t) => t.title === 'Repair LLM provider select option labels');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('llm_config.py');
+    expect(task?.expected_changed_files).toContain('templates/index.html');
     expect(task?.verification_commands).toContain('python3 -m pytest tests/test_llm_config.py -q');
   });
 
@@ -605,6 +731,93 @@ describe('iterationPlanner', () => {
     expect(task?.verification_commands).toContain('node scripts/cli-contract-check.mjs');
   });
 
+  it('plans a runnable product entry when specialized surfaces only have contracts', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/game-demo',
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        test_commands: ['npm test'],
+        build_commands: ['npm run build'],
+        start_commands: [],
+        important_files: ['package.json', 'src'],
+        missing_files: [],
+        dependency_summary: { runtime: 1, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 84, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-runtime',
+          category: 'missing_product_runtime_entry',
+          severity: 'high',
+          message: 'Specialized product surface has no runnable entry',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['package.json', 'index.html'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'make surface runnable');
+    const task = plan.tasks.find((t) => t.title === 'Add product runtime entry');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('package.json');
+    expect(task?.verification_commands).toContain('node scripts/product-runtime-check.mjs');
+  });
+
+  it('does not starve surface and contract harnesses behind generic demo chores', () => {
+    const planner = new PlannerAgent();
+    const base = {
+      severity: 'medium' as const,
+      why_it_matters: '',
+      suggested_fix: '',
+      related_files: [],
+    };
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/mixed-demo',
+        detected_language: 'javascript',
+        detected_frameworks: ['vue'],
+        package_manager: 'npm',
+        test_commands: [],
+        build_commands: [],
+        start_commands: [],
+        important_files: ['package.json', 'src/App.vue', 'bin/demo.js', 'src/game.js'],
+        missing_files: [],
+        dependency_summary: { runtime: 3, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 23, grade: 'raw_demo', breakdown: {} as never, notes: [] },
+      findings: [
+        { ...base, id: 'gap-test-command', category: 'missing_required_command', severity: 'blocker' as const, message: 'Missing required command: test' },
+        { ...base, id: 'gap-no-tests', category: 'no_tests', severity: 'high' as const, message: 'No tests' },
+        { ...base, id: 'gap-readme-file', category: 'missing_required_file', severity: 'high' as const, message: 'Missing README.md' },
+        { ...base, id: 'gap-readme', category: 'missing_readme', message: 'Missing README' },
+        { ...base, id: 'gap-ui', category: 'missing_ui_product_verification', message: 'UI harness missing' },
+        { ...base, id: 'gap-cli', category: 'missing_cli_contract_harness', message: 'CLI harness missing' },
+        { ...base, id: 'gap-surface', category: 'missing_demo_surface_contract_matrix', message: 'Surface matrix missing' },
+        { ...base, id: 'gap-game', category: 'missing_game_contract_harness', message: 'Game harness missing' },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'mixed demo productization');
+
+    expect(plan.tasks.map((task) => task.title)).toEqual([
+      'Add UI product verification harness',
+      'Add CLI executable contract harness',
+      'Add demo surface contract matrix',
+      'Add game runtime contract harness',
+    ]);
+  });
+
   it('plans non-UI productization harnesses for API, config, data and workers', () => {
     const planner = new PlannerAgent();
     const gap = {
@@ -676,6 +889,191 @@ describe('iterationPlanner', () => {
       'node scripts/config-contract-check.mjs',
       'node scripts/data-contract-check.mjs',
       'node scripts/worker-contract-check.mjs',
+    ]);
+  });
+
+  it('plans a generalized demo surface contract matrix for specialized demo types', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/extension-demo',
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'unknown',
+        test_commands: [],
+        build_commands: [],
+        start_commands: [],
+        important_files: ['manifest.json', 'popup.html'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 55, grade: 'structured_prototype', breakdown: {} as never, notes: [] },
+      findings: [{
+        id: 'gap-surface',
+        category: 'missing_demo_surface_contract_matrix',
+        severity: 'medium',
+        message: 'specialized surface',
+        why_it_matters: '',
+        suggested_fix: '',
+        related_files: ['docs/productization-surface-map.md', 'scripts/surface-contract-check.mjs'],
+      }],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'generalize demo productization');
+    const task = plan.tasks.find((t) => t.title === 'Add demo surface contract matrix');
+
+    expect(task?.expected_changed_files).toContain('docs/productization-surface-map.md');
+    expect(task?.verification_commands).toContain('node scripts/surface-contract-check.mjs');
+  });
+
+  it('plans dedicated contract harnesses for specialized demo surfaces', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/specialized-demo',
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        test_commands: [],
+        build_commands: [],
+        start_commands: [],
+        important_files: ['manifest.json', 'analysis.ipynb', 'app.json', 'electron.js'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 55, grade: 'structured_prototype', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-extension',
+          category: 'missing_browser_extension_contract_harness',
+          severity: 'medium',
+          message: 'extension',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-notebook',
+          category: 'missing_notebook_contract_harness',
+          severity: 'medium',
+          message: 'notebook',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-mobile',
+          category: 'missing_mobile_contract_harness',
+          severity: 'medium',
+          message: 'mobile',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-desktop',
+          category: 'missing_desktop_contract_harness',
+          severity: 'medium',
+          message: 'desktop',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'specialized demo productization');
+    expect(plan.tasks.map((task) => task.title)).toEqual([
+      'Add browser extension contract harness',
+      'Add notebook reproducibility contract harness',
+      'Add mobile app contract harness',
+      'Add desktop app contract harness',
+    ]);
+    expect(plan.tasks.map((task) => task.verification_commands[0])).toEqual([
+      'node scripts/browser-extension-contract-check.mjs',
+      'node scripts/notebook-contract-check.mjs',
+      'node scripts/mobile-contract-check.mjs',
+      'node scripts/desktop-contract-check.mjs',
+    ]);
+  });
+
+  it('plans dedicated contract harnesses for game, 3D, ML and media demos', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/rich-demo',
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        test_commands: [],
+        build_commands: [],
+        start_commands: [],
+        important_files: ['src/game.js', 'src/scene.js', 'model.onnx', 'src/process-media.js'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 55, grade: 'structured_prototype', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-game',
+          category: 'missing_game_contract_harness',
+          severity: 'medium',
+          message: 'game',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-3d',
+          category: 'missing_3d_scene_contract_harness',
+          severity: 'medium',
+          message: '3d',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-ml',
+          category: 'missing_ml_model_contract_harness',
+          severity: 'medium',
+          message: 'ml',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+        {
+          id: 'gap-media',
+          category: 'missing_media_pipeline_contract_harness',
+          severity: 'medium',
+          message: 'media',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: [],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'rich demo productization');
+    expect(plan.tasks.map((task) => task.title)).toEqual([
+      'Add game runtime contract harness',
+      'Add 3D scene contract harness',
+      'Add ML model contract harness',
+      'Add media pipeline contract harness',
+    ]);
+    expect(plan.tasks.map((task) => task.verification_commands[0])).toEqual([
+      'node scripts/game-contract-check.mjs',
+      'node scripts/3d-scene-contract-check.mjs',
+      'node scripts/ml-model-contract-check.mjs',
+      'node scripts/media-pipeline-contract-check.mjs',
     ]);
   });
 

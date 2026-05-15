@@ -20,7 +20,7 @@ documents every command grouped by intent.
 | `analyze --project <path>` | ProjectSnapshot + ProjectScore |
 | `gap --project <path>` | GapReport |
 | `plan --project <path>` | IterationPlan (no writes) |
-| `iterate --project <path>` | Iteration round |
+| `iterate --project <path> [--web]` | Iteration round. With `--web`, MatrixOmnix refreshes the official LLM model catalog before planning when an LLM/provider surface is detected, so provider/model selector repairs can use current source-cited model choices without researching unrelated projects. |
 | `self-check` | Run analyze/gap/regression + probes |
 | `self-iterate[-sandbox]` | Read-only/worktree-bounded self-iteration |
 | `benchmark` | Score every project under benchmarks/ + examples/ |
@@ -33,12 +33,22 @@ documents every command grouped by intent.
 | Command | Purpose |
 |---|---|
 | `research --project <path> --domain <domain> --web [--query "<q>"] [--max-results <n>]` | Controlled competitor/product research. Writes `.demo2project/research/latest.json` and `.demo2project/research/latest.md`; `gap` then turns sourced missing capabilities into market gaps. |
+| `models:refresh --project <path> --web` | Controlled official LLM model catalog refresh. Reads provider documentation from allowlisted official domains and writes `.demo2project/research/llm-model-catalog.json`; LLM provider repairs use this catalog when generating model choices. |
 
 Research networking is disabled unless `--web` is passed. The default provider
 uses the research allowlist in `NetworkGuard`, records network intents under
 the project, and treats all external content as untrusted evidence. The report
 is for capability extraction only; it must not be used to copy competitor text,
 code, UI, names or brand assets.
+
+Model catalog refresh uses the same explicit `--web` opt-in, but restricts
+requests to provider-owned documentation domains such as OpenAI, DeepSeek,
+Alibaba Cloud Model Studio and MiniMax. The standalone `models:refresh` command
+always performs this explicit refresh; `iterate --web` performs it only when the
+target project already exposes an LLM/provider/model surface or an existing
+catalog. If an official page cannot be fetched or parsed, MatrixOmnix records a
+warning and falls back to its source-cited snapshot seed instead of inventing
+model IDs.
 
 ## QA
 
@@ -50,6 +60,31 @@ code, UI, names or brand assets.
 | `qa:audit / qa:retire / qa:promote` | Lifecycle |
 | `qa:health / qa:compact / qa:merge / qa:retire-stale / qa:report-memory` | Memory ops |
 | `qa:applicable / qa:transfer` | Cross-project applicability |
+
+## Generalized Demo Surfaces
+
+MatrixOmnix now detects delivery surfaces independently from the main project
+archetype. Specialized demos such as browser extensions, notebooks, mobile
+apps, desktop shells, games, 3D/WebGL scenes, ML model demos and media
+processing pipelines get a `missing_demo_surface_contract_matrix` gap when
+they lack `docs/productization-surface-map.md` and
+`scripts/surface-contract-check.mjs`. The rule-based executor can add that
+matrix with `surface:contract-check`, giving later agents a concrete boundary
+before they apply UI, API, CLI, data or worker-specific optimizations.
+
+Specialized surfaces also receive dedicated executable contract gaps when their
+own harness is missing:
+
+| Surface | Gap | Verification |
+|---|---|---|
+| Browser extension | `missing_browser_extension_contract_harness` | `node scripts/browser-extension-contract-check.mjs` |
+| Notebook | `missing_notebook_contract_harness` | `node scripts/notebook-contract-check.mjs` |
+| Mobile app | `missing_mobile_contract_harness` | `node scripts/mobile-contract-check.mjs` |
+| Desktop app | `missing_desktop_contract_harness` | `node scripts/desktop-contract-check.mjs` |
+| Game or simulation | `missing_game_contract_harness` | `node scripts/game-contract-check.mjs` |
+| 3D/WebGL scene | `missing_3d_scene_contract_harness` | `node scripts/3d-scene-contract-check.mjs` |
+| ML model or inference demo | `missing_ml_model_contract_harness` | `node scripts/ml-model-contract-check.mjs` |
+| Media processing pipeline | `missing_media_pipeline_contract_harness` | `node scripts/media-pipeline-contract-check.mjs` |
 
 ## Security (Phase 7)
 

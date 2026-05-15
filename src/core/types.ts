@@ -139,6 +139,9 @@ export interface ScoreEvidenceEntry {
   result?: 'passed' | 'failed' | 'unrun';
   confidence: 'high' | 'medium' | 'low';
   notes?: string;
+  stdout_summary?: string;
+  stderr_summary?: string;
+  failure_reason?: string;
 }
 
 export interface ScoreGateFailure {
@@ -146,6 +149,9 @@ export interface ScoreGateFailure {
   cap: number;
   reason: string;
   evidence_command?: string;
+  stdout_summary?: string;
+  stderr_summary?: string;
+  failure_reason?: string;
 }
 
 export interface ScoreGateResult {

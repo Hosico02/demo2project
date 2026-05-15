@@ -1,0 +1,7 @@
+{
+  "name": "stress-cli-demo",
+  "type": "module",
+  "bin": {
+    "stress-cli-demo": "./bin/demo.js"
+  }
+}

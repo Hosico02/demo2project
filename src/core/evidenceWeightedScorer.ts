@@ -99,19 +99,30 @@ export async function scoreProjectWithEvidence(
     if (opts.runCommands) {
       const cmd = snapshot.test_commands[0]!;
       const r = await runCommand(cmd, { cwd: projectPath, timeoutMs: opts.timeoutMs ?? 60_000 });
+      const suspiciousOutput = detectCriticalVerificationOutput(r.stdout_summary, r.stderr_summary);
+      const testVerified = r.passed && !suspiciousOutput;
       evidence.push({
         dimension: 'test_score',
         claimed: true,
-        verified: r.passed,
+        verified: testVerified,
         evidence_command: cmd,
-        result: r.passed ? 'passed' : 'failed',
-        confidence: r.passed ? 'high' : 'medium',
-        notes: r.passed ? undefined : `test command failed: ${r.failure_reason ?? 'non-zero exit'}`,
+        result: testVerified ? 'passed' : 'failed',
+        confidence: testVerified ? 'high' : 'medium',
+        notes: testVerified
+          ? undefined
+          : suspiciousOutput
+            ? `test command emitted critical runtime output: ${suspiciousOutput}`
+            : `test command failed: ${r.failure_reason ?? 'non-zero exit'}`,
+        stdout_summary: r.stdout_summary,
+        stderr_summary: r.stderr_summary,
+        failure_reason: suspiciousOutput ? `suspicious_output:${suspiciousOutput}` : r.failure_reason,
       });
-      if (!r.passed) {
+      if (!testVerified) {
         const penalty = PENALTIES.test_score[1];
         breakdown.test_score = Math.max(0, breakdown.test_score - penalty);
-        notes.push(`test penalty: ${cmd} failed (-${penalty})`);
+        notes.push(suspiciousOutput
+          ? `test penalty: ${cmd} emitted critical runtime output (-${penalty})`
+          : `test penalty: ${cmd} failed (-${penalty})`);
       }
     } else {
       evidence.push({
@@ -136,18 +147,26 @@ export async function scoreProjectWithEvidence(
     if (opts.runCommands) {
       const cmd = snapshot.build_commands[0]!;
       const r = await runCommand(cmd, { cwd: projectPath, timeoutMs: opts.timeoutMs ?? 60_000 });
+      const suspiciousOutput = detectCriticalVerificationOutput(r.stdout_summary, r.stderr_summary);
+      const buildVerified = r.passed && !suspiciousOutput;
       evidence.push({
         dimension: 'build_score',
         claimed: true,
-        verified: r.passed,
+        verified: buildVerified,
         evidence_command: cmd,
-        result: r.passed ? 'passed' : 'failed',
-        confidence: r.passed ? 'high' : 'medium',
+        result: buildVerified ? 'passed' : 'failed',
+        confidence: buildVerified ? 'high' : 'medium',
+        notes: suspiciousOutput ? `build command emitted critical runtime output: ${suspiciousOutput}` : undefined,
+        stdout_summary: r.stdout_summary,
+        stderr_summary: r.stderr_summary,
+        failure_reason: suspiciousOutput ? `suspicious_output:${suspiciousOutput}` : r.failure_reason,
       });
-      if (!r.passed) {
+      if (!buildVerified) {
         const penalty = PENALTIES.build_score[1];
         breakdown.build_score = Math.max(0, breakdown.build_score - penalty);
-        notes.push(`build penalty: ${cmd} failed (-${penalty})`);
+        notes.push(suspiciousOutput
+          ? `build penalty: ${cmd} emitted critical runtime output (-${penalty})`
+          : `build penalty: ${cmd} failed (-${penalty})`);
       }
     } else {
       evidence.push({
@@ -222,4 +241,19 @@ function gradeFor(total: number): ProjectGrade {
   if (total <= 70) return 'structured_prototype';
   if (total <= 85) return 'project_ready_candidate';
   return 'production_ready_baseline';
+}
+
+function detectCriticalVerificationOutput(stdout: string, stderr: string): string | null {
+  const output = `${stdout}\n${stderr}`;
+  const patterns: Array<[RegExp, string]> = [
+    [/\bgame thread failed\b/i, 'background_thread_failed'],
+    [/Traceback \(most recent call last\):/, 'python_traceback'],
+    [/\bUnhandled(?:Promise)?Rejection\b/i, 'unhandled_rejection'],
+    [/\b(?:uncaught exception|uncaught error)\b/i, 'uncaught_exception'],
+    [/\b(?:AuthenticationError|ReferenceError|TypeError|SyntaxError|RuntimeError):/i, 'runtime_exception'],
+  ];
+  for (const [pattern, reason] of patterns) {
+    if (pattern.test(output)) return reason;
+  }
+  return null;
 }

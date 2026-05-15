@@ -1,0 +1,8 @@
+{
+  "name": "stress-game-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "phaser": "^3.90.0"
+  }
+}

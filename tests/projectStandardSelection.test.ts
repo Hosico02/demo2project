@@ -67,6 +67,33 @@ describe('standards library', () => {
     expect(standard.test_expectations.join('\n')).toMatch(/Vue|browser-level/i);
   });
 
+  it('does not select node-cli just because a JavaScript package exists', async () => {
+    const { name, standard } = await selectStandardForSnapshot(
+      snap({
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        important_files: ['package.json', 'src', 'app.json'],
+      }),
+    );
+
+    expect(name).toBe('generic-project');
+    expect(standard.recommended_files).not.toContain('bin');
+  });
+
+  it('selects node-cli when an actual bin entry is present', async () => {
+    const { name } = await selectStandardForSnapshot(
+      snap({
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        important_files: ['package.json', 'bin', 'src'],
+      }),
+    );
+
+    expect(name).toBe('node-cli');
+  });
+
   it('selects typescript-library for TS with tsconfig + no app framework', async () => {
     const { name } = await selectStandardForSnapshot(
       snap({

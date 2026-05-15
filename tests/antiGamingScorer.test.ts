@@ -65,6 +65,21 @@ describe('Anti-gaming detectors', () => {
     expect(f.some((x) => x.detector === 'forbidden_pattern_in_source')).toBe(true);
   });
 
+  it('does not flag detector regex strings or short private-key fixtures as real secrets', async () => {
+    const dir = await mk({
+      'package.json': JSON.stringify({ name: 'x' }),
+      'app.py': [
+        'PRIVATE_PATTERN = "-----BEGIN PRIVATE KEY-----"',
+        'fixture = "-----BEGIN PRIVATE KEY-----MIIE...-----END PRIVATE KEY-----"',
+        '',
+      ].join('\n'),
+      'scripts/check.mjs': 'const pattern = "-----BEGIN PRIVATE KEY-----";\n',
+    });
+    const snap = await takeSnapshot(dir);
+    const f = await runAntiGaming(snap);
+    expect(f.some((x) => x.detector === 'forbidden_pattern_in_source')).toBe(false);
+  });
+
   it('does not treat pytest flags as missing test targets', async () => {
     const dir = await mk({
       'package.json': JSON.stringify({ name: 'x', scripts: { test: 'python3 -m pytest -q' } }),

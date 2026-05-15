@@ -16,6 +16,12 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
   const maxIter = flagNumber(flags, 'max-iterations', 1);
   const providerName = flagString(flags, 'provider', 'mock')!;
   const mode = (flagString(flags, 'mode', 'happy') ?? 'happy') as MockMode;
+  const allowWeb = flags.web === true || flags.web === 'true';
+  const refreshModels = allowWeb || flags['refresh-models'] === true || flags['refresh-models'] === 'true';
+  if (refreshModels && !allowWeb) {
+    process.stderr.write('error: official model refresh requires explicit --web network opt-in\n');
+    return 2;
+  }
 
   let provider: AgentProvider;
   switch (providerName) {
@@ -65,6 +71,7 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
     maxIterations: maxIter,
     systemRoot,
     useWorktree,
+    officialModelCatalog: refreshModels ? { allowNetwork: allowWeb } : undefined,
   });
 
   for (const s of summaries) {

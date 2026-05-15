@@ -212,6 +212,30 @@ describe('gapAnalyzer', () => {
     expect(categories).not.toContain('misaligned_node_scaffold');
   });
 
+  it('does not flag Python projects for contract harness aliases that run Node checks', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-py-contract-alias-gap-'));
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Flask Demo\n\nRun the Flask service.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("hi")\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_smoke.py'), 'def test_smoke():\n    assert True\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'api-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      scripts: {
+        test: 'python3 -m pytest -q',
+        build: 'python3 -m py_compile app.py',
+        'api:contract-check': 'node scripts/api-contract-check.mjs',
+        'contract:check': 'node scripts/api-contract-check.mjs',
+      },
+    }, null, 2));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).not.toContain('misaligned_node_scaffold');
+  });
+
   it('flags CLI projects without an executable contract harness', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-cli-contract-gap-'));
     await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
@@ -259,6 +283,182 @@ describe('gapAnalyzer', () => {
     const categories = gap.findings.map((f) => f.category);
 
     expect(categories).not.toContain('missing_cli_contract_harness');
+  });
+
+  it('flags contract-only productization shells without executable product core', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-demo-shell-gap-'));
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# CLI Demo\n\nRun the CLI.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'cli-demo',
+      bin: './bin/cli.js',
+      scripts: {
+        test: 'node --test tests/smoke.test.mjs',
+        build: 'node --check bin/cli.js',
+        'cli:contract-check': 'node scripts/cli-contract-check.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'bin', 'cli.js'), '#!/usr/bin/env node\nif (process.argv.includes("--help")) console.log("Usage: cli-demo");\n');
+    await fs.writeFile(path.join(dir, 'tests', 'smoke.test.mjs'), 'import test from "node:test"; test("ok", () => {});\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'cli-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'docs', 'cli-contract.md'), '# CLI Contract\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('demo_shell_without_product_core');
+  });
+
+  it('accepts productized demos with a tested product core spine', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-product-core-gap-'));
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# CLI Demo\n\nRun the CLI.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'cli-demo',
+      bin: './bin/cli.js',
+      scripts: {
+        test: 'node --test tests/product-core.test.mjs',
+        build: 'node --check src/product-core.mjs',
+        'cli:contract-check': 'node scripts/cli-contract-check.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'bin', 'cli.js'), '#!/usr/bin/env node\nimport { createProductCore } from "../src/product-core.mjs";\nif (process.argv.includes("--help")) console.log(createProductCore().usage);\n');
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { usage: "Usage: cli-demo", capabilities: ["cli"], workflows: ["help"] }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'cli-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'docs', 'cli-contract.md'), '# CLI Contract\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).not.toContain('demo_shell_without_product_core');
+  });
+
+  it('flags specialized visual demos that have product contracts but no runnable product entry', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-runtime-entry-gap-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Game Demo\n\n## Usage\n\nRun the product game.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'game-demo',
+      type: 'module',
+      dependencies: { phaser: '^3.90.0' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'surface:contract-check': 'node scripts/surface-contract-check.mjs',
+        'game:contract-check': 'node scripts/game-contract-check.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'game.js'), 'new Phaser.Game({ scene: { create() {} } });\n');
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["game_demo"], workflows: [{ id: "game", capability: "game_demo", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'surface-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'game-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'docs', 'productization-surface-map.md'), '# Surface Map\n');
+    await fs.writeFile(path.join(dir, 'docs', 'game-contract.md'), '# Game Contract\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('missing_product_runtime_entry');
+  });
+
+  it('flags ML and media product cores that have no runnable product entry', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-pipeline-runtime-gap-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Media Pipeline\n\n## Usage\n\nRun the pipeline product.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'media-pipeline',
+      type: 'module',
+      dependencies: { sharp: '^0.34.0' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'surface:contract-check': 'node scripts/surface-contract-check.mjs',
+        'media:contract-check': 'node scripts/media-pipeline-contract-check.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'process-media.js'), 'import sharp from "sharp"; export async function resize(input, output) { return sharp(input).resize(128).toFile(output); }\n');
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["media_pipeline"], workflows: [{ id: "media", capability: "media_pipeline", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'surface-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'media-pipeline-contract-check.mjs'), 'console.log("ok")\n');
+    await fs.writeFile(path.join(dir, 'docs', 'productization-surface-map.md'), '# Surface Map\n');
+    await fs.writeFile(path.join(dir, 'docs', 'media-pipeline-contract.md'), '# Media Contract\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('missing_product_runtime_entry');
+  });
+
+  it('does not apply generic web UI maturity gates to game and mobile product surfaces', async () => {
+    const gameDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-game-maturity-scope-'));
+    await fs.mkdir(path.join(gameDir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(gameDir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(gameDir, 'README.md'), '# Game Product\n\n## Usage\n\nRun `npm start`.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(gameDir, 'package.json'), JSON.stringify({
+      name: 'game-product',
+      type: 'module',
+      dependencies: { phaser: '^3.90.0' },
+      devDependencies: { vite: '^6.0.0' },
+      scripts: {
+        start: 'vite --host 0.0.0.0',
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(gameDir, 'index.html'), '<main id="app"></main><script type="module" src="/src/product-runtime.mjs"></script>\n');
+    await fs.writeFile(path.join(gameDir, 'src', 'game.js'), 'new Phaser.Game({ scene: { create() {} } });\n');
+    await fs.writeFile(path.join(gameDir, 'src', 'product-runtime.mjs'), 'import Phaser from "phaser"; globalThis.Phaser = Phaser; await import("./game.js");\n');
+    await fs.writeFile(path.join(gameDir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["game_demo"], workflows: [{ id: "game", capability: "game_demo", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(gameDir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+
+    const mobileDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-mobile-maturity-scope-'));
+    await fs.mkdir(path.join(mobileDir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(mobileDir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(mobileDir, 'README.md'), '# Mobile Product\n\n## Usage\n\nRun `npm start`.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(mobileDir, 'app.json'), JSON.stringify({ expo: { name: 'Mobile Product', slug: 'mobile-product' } }, null, 2));
+    await fs.writeFile(path.join(mobileDir, 'App.js'), 'import React from "react"; import { Text } from "react-native"; export default function App() { return <Text>Ready</Text>; }\n');
+    await fs.writeFile(path.join(mobileDir, 'package.json'), JSON.stringify({
+      name: 'mobile-product',
+      dependencies: { expo: '^54.0.0', react: '^19.0.0', 'react-native': '^0.81.0' },
+      scripts: {
+        start: 'expo start',
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(mobileDir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["mobile_app"], workflows: [{ id: "mobile", capability: "mobile_app", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(mobileDir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+
+    for (const dir of [gameDir, mobileDir]) {
+      const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+      const categories = gap.findings.map((f) => f.category);
+      expect(categories).not.toContain('below_web_ui_product_maturity');
+      expect(gap.product_maturity?.domain).not.toBe('web_ui_app');
+    }
   });
 
   it('flags common UI interaction, accessibility and polish risks across UI projects', async () => {
@@ -418,6 +618,52 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('missing_config_guard');
   });
 
+  it('does not apply game start-route hardening gaps to generic Flask chat APIs', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-chat-no-start-gap-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Flask Chat Demo\n\nDocker gunicorn healthz\n' + 'x'.repeat(220));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'from llm_config import public_provider_config, resolve_llm_config',
+      'from openai import OpenAI',
+      'app = Flask(__name__)',
+      '@app.route("/healthz")',
+      'def healthz():',
+      '    return jsonify({"ok": True})',
+      '@app.get("/config")',
+      'def config():',
+      '    return jsonify(public_provider_config())',
+      '@app.post("/chat")',
+      'def chat():',
+      '    body = request.get_json(silent=True) or {}',
+      '    llm_config = resolve_llm_config(body)',
+      '    if not llm_config["ok"]:',
+      '        return jsonify({"error": llm_config["error"], "providers": public_provider_config()}), 400',
+      '    return jsonify({"reply": "ok"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [{"id": "deepseek", "label": "DeepSeek", "models": ["deepseek-chat"], "default_model": "deepseek-chat"}]}',
+      'def resolve_llm_config(payload):',
+      '    return {"ok": bool(payload.get("api_key")), "error": "missing_api_key", "config": {"api_key": payload.get("api_key"), "base_url": "https://api.deepseek.com", "model": "deepseek-chat"}}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0,<4.0.0\nopenai>=1.0.0,<2.0.0\npytest>=8.0.0,<9.0.0\ngunicorn>=22.0.0,<23.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'flask>=3.0.0,<4.0.0\nopenai>=1.0.0,<2.0.0\npytest>=8.0.0,<9.0.0\ngunicorn>=22.0.0,<23.0.0\n');
+    await fs.writeFile(path.join(dir, 'pyproject.toml'), '[project]\nname = "flask-chat-demo"\n');
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nHEALTHCHECK CMD curl http://127.0.0.1:5001/healthz\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), 'def test_chat():\n    assert True\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).not.toContain('missing_config_guard');
+    expect(categories).not.toContain('missing_start_input_validation');
+    expect(categories).not.toContain('missing_active_game_limit');
+  });
+
   it('accepts Flask start guards that call require_api_key and return 400 on failure', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-require-guard-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -499,6 +745,63 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('missing_active_game_limit');
     expect(categories).toContain('missing_structured_logging');
     expect(categories).toContain('missing_industrial_api_tests');
+  });
+
+  it('accepts industrial Flask chat route validation and logging tests', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-chat-industrial-gap-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Flask Chat Demo\n\nDocker gunicorn healthz chat endpoint\n' + 'x'.repeat(220));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import logging',
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      'logger = logging.getLogger(__name__)',
+      '@app.after_request',
+      'def add_security_headers(response):',
+      '    response.headers.setdefault("X-Content-Type-Options", "nosniff")',
+      '    response.headers.setdefault("X-Frame-Options", "DENY")',
+      '    response.headers.setdefault("Referrer-Policy", "no-referrer")',
+      '    return response',
+      '@app.route("/healthz")',
+      'def healthz():',
+      '    return jsonify({"status": "ok"})',
+      '@app.post("/chat")',
+      'def chat():',
+      '    body = request.get_json(silent=True) or {}',
+      '    message = body.get("message", "")',
+      '    if not isinstance(message, str) or not message.strip():',
+      '        logger.warning("invalid chat request", extra={"reason": "missing_message"})',
+      '        return jsonify({"error": "invalid_message"}), 400',
+      '    logger.info("chat request", extra={"message_length": len(message)})',
+      '    return jsonify({"reply": message})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0,<4.0.0\npytest>=8.0.0,<9.0.0\ngunicorn>=22.0.0,<23.0.0\n');
+    await fs.writeFile(path.join(dir, 'pyproject.toml'), '[project]\nname = "flask-chat-demo"\n');
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nHEALTHCHECK CMD curl http://127.0.0.1:5001/healthz\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'import pytest',
+      '@pytest.fixture()',
+      'def client():',
+      '    import app as app_module',
+      '    app_module.app.config.update(TESTING=True)',
+      '    yield app_module.app.test_client()',
+      'def test_security_headers_present(client):',
+      '    response = client.get("/healthz")',
+      '    assert response.headers["X-Content-Type-Options"] == "nosniff"',
+      'def test_chat_rejects_missing_message(client):',
+      '    response = client.post("/chat", json={})',
+      '    assert response.status_code == 400',
+      '    assert response.get_json()["error"] == "invalid_message"',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).not.toContain('missing_structured_logging');
+    expect(categories).not.toContain('missing_industrial_api_tests');
   });
 
   it('caps a production score when high-severity gaps remain open', async () => {
@@ -656,6 +959,12 @@ describe('gapAnalyzer', () => {
             cap: 49,
             reason: 'test command failed',
             evidence_command: 'python3 -m pytest -q',
+            stdout_summary: [
+              'tests/test_contract_harness.py:13: in test_config_contract_harness_passes',
+              'scripts/config_contract_check.py:52: AssertionError',
+              'E AssertionError: Expected env vars no longer read from source: WW_ALLOW_SERVER_LLM_KEY_FALLBACK',
+            ].join('\n'),
+            failure_reason: 'exit_code_1',
           },
         ],
       },
@@ -666,6 +975,8 @@ describe('gapAnalyzer', () => {
 
     expect(verificationFinding?.severity).toBe('blocker');
     expect(verificationFinding?.message).toContain('python3 -m pytest -q');
+    expect(verificationFinding?.suggested_fix).toContain('WW_ALLOW_SERVER_LLM_KEY_FALLBACK');
+    expect(verificationFinding?.related_files).toContain('scripts/config_contract_check.py');
     expect(gap.blockers.map((f) => f.category)).toContain('failed_test_verification');
   });
 
@@ -907,6 +1218,138 @@ describe('gapAnalyzer', () => {
     if (confidenceAdjusted !== undefined) expect(confidenceAdjusted).toBeLessThanOrEqual(gap.score.total);
   });
 
+  it('does not count isolated social deduction product backbone modules as market ready', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-werewolf-isolated-backbone-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Product\n\nA mature 狼人杀 social deduction product.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nCMD ["gunicorn", "wsgi:app"]\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: python3 -m pytest -q\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'def healthz():\n    return {"status": "ok"}\n');
+    await fs.writeFile(path.join(dir, 'game.py'), 'GAME_MODES = {"classic": {"roles": ["werewolf", "seer", "witch", "villager"]}}\nclass GameMaster:\n    def winner(self):\n        return "wolves"\n');
+    await fs.writeFile(path.join(dir, 'rules.py'), 'def resolve_vote_result(votes):\n    return {"outcome": "vote"}\ndef winner_from_alive_roles(roles):\n    return None\n# night day alive dead kill save check guard winner werewolf seer witch villager\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_rules.py'), 'from rules import resolve_vote_result\n\ndef test_rules():\n    assert resolve_vote_result({})["outcome"] == "none"\n');
+    await fs.writeFile(path.join(dir, 'accounts.py'), 'class AccountStore:\n    def login(self):\n        return "session"\n# account profile password_hash session\n');
+    await fs.writeFile(path.join(dir, 'lobby.py'), 'class LobbyManager:\n    pass\n# lobby room matchmaking match_queue ready_check invite party\n');
+    await fs.writeFile(path.join(dir, 'communication.py'), 'class WebSocketPresenceHub:\n    pass\n# websocket voice chat presence\n');
+    await fs.writeFile(path.join(dir, 'moderation.py'), 'def report_player():\n    pass\n# moderation mute block_user ban anti_abuse grief afk\n');
+    await fs.writeFile(path.join(dir, 'ranking.py'), 'class RankedSeasonLeaderboard:\n    pass\n# ranked season leaderboard rating mmr elo division tier\n');
+    await fs.writeFile(path.join(dir, 'history.py'), 'import sqlite3\n# database match_history replay_store\n');
+    await fs.writeFile(path.join(dir, 'roles_catalog.py'), [
+      'ROLE_REGISTRY = {',
+      '    "werewolf": {}, "alpha_wolf": {}, "seer": {}, "witch": {},',
+      '    "hunter": {}, "guard": {}, "medium": {}, "villager": {},',
+      '    "cupid": {}, "thief": {}, "idiot": {}, "wolf_king": {},',
+      '}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'liveops.py'), 'class LiveOpsStore:\n    pass\n# shop skin avatar item cosmetic currency battle pass quest reward track inventory\n');
+    await fs.writeFile(path.join(dir, 'admin.py'), 'class AdminConsole:\n    pass\n# admin metrics prometheus tracing audit analytics dashboard incident rate_limit\n');
+    await fs.writeFile(path.join(dir, 'host_controls.py'), 'class HostControls:\n    pass\n# custom game host controls private room room settings spectator anonymous players\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(gap.product_maturity?.level).not.toBe('market_ready');
+    expect(gap.product_maturity?.missing_capabilities).toContain('Runtime integration of product systems');
+    expect(gap.product_maturity?.missing_capabilities).toContain('User-facing product workflows');
+    expect(gap.product_maturity?.missing_capabilities).toContain('End-to-end product workflow verification');
+    expect(categories).toContain('disconnected_social_product_backbone');
+    expect(categories).toContain('below_social_deduction_market_parity');
+    expect(gap.score.score_gate?.failures.some((f) => f.gate === 'product_maturity')).toBe(true);
+  });
+
+  it('counts runtime-integrated social deduction product workflows as market ready', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-werewolf-integrated-backbone-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Product\n\nA mature 狼人杀 social deduction product.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nCMD ["gunicorn", "wsgi:app"]\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: python3 -m pytest -q\n');
+    await fs.writeFile(path.join(dir, 'game.py'), 'GAME_MODES = {"classic": {"roles": ["werewolf", "seer", "witch", "villager"]}}\nclass GameMaster:\n    def winner(self):\n        return "wolves"\n');
+    await fs.writeFile(path.join(dir, 'rules.py'), 'def resolve_vote_result(votes):\n    return {"outcome": "vote"}\ndef winner_from_alive_roles(roles):\n    return None\n# night day alive dead kill save check guard winner werewolf seer witch villager\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_rules.py'), 'from rules import resolve_vote_result\n\ndef test_rules():\n    assert resolve_vote_result({})["outcome"] == "vote"\n');
+    await fs.writeFile(path.join(dir, 'accounts.py'), 'class AccountStore:\n    def login(self):\n        return "session"\n# account profile password_hash session\n');
+    await fs.writeFile(path.join(dir, 'lobby.py'), 'class LobbyManager:\n    pass\n# lobby room matchmaking match_queue ready_check invite party\n');
+    await fs.writeFile(path.join(dir, 'communication.py'), 'class WebSocketPresenceHub:\n    pass\n# websocket voice chat presence\n');
+    await fs.writeFile(path.join(dir, 'moderation.py'), 'def report_player():\n    pass\n# moderation mute block_user ban anti_abuse grief afk\n');
+    await fs.writeFile(path.join(dir, 'ranking.py'), 'class RankedSeasonLeaderboard:\n    pass\n# ranked season leaderboard rating mmr elo division tier\n');
+    await fs.writeFile(path.join(dir, 'history.py'), 'import sqlite3\n# database match_history replay_store\n');
+    await fs.writeFile(path.join(dir, 'roles_catalog.py'), [
+      'ROLE_REGISTRY = {',
+      '    "werewolf": {}, "alpha_wolf": {}, "seer": {}, "witch": {},',
+      '    "hunter": {}, "guard": {}, "medium": {}, "villager": {},',
+      '    "cupid": {}, "thief": {}, "idiot": {}, "wolf_king": {},',
+      '}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'liveops.py'), 'class LiveOpsStore:\n    pass\n# shop skin avatar item cosmetic currency battle pass quest reward track inventory\n');
+    await fs.writeFile(path.join(dir, 'admin.py'), 'class AdminConsole:\n    pass\n# admin metrics prometheus tracing audit analytics dashboard incident rate_limit\n');
+    await fs.writeFile(path.join(dir, 'host_controls.py'), 'class HostControls:\n    pass\n# custom game host controls private room room settings spectator anonymous players\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'from accounts import AccountStore',
+      'from lobby import LobbyManager',
+      'from communication import WebSocketPresenceHub',
+      'from moderation import report_player',
+      'from ranking import RankedSeasonLeaderboard',
+      'from history import sqlite3',
+      'from roles_catalog import ROLE_REGISTRY',
+      'from liveops import LiveOpsStore',
+      'from admin import AdminConsole',
+      'from host_controls import HostControls',
+      'app = Flask(__name__)',
+      'accounts = AccountStore(); lobby = LobbyManager(); hub = WebSocketPresenceHub(); ranked = RankedSeasonLeaderboard(); liveops = LiveOpsStore(); admin = AdminConsole(); hosts = HostControls()',
+      '@app.route("/healthz")',
+      'def healthz(): return jsonify({"status": "ok"})',
+      '@app.route("/login", methods=["POST"])',
+      'def login(): return jsonify({"session": "session"})',
+      '@app.route("/lobby/rooms", methods=["POST"])',
+      'def create_room(): return jsonify({"room": "room"})',
+      '@app.route("/chat/presence")',
+      'def presence(): return jsonify({"presence": []})',
+      '@app.route("/moderation/report", methods=["POST"])',
+      'def report(): return jsonify({"report": "open"})',
+      '@app.route("/ranked/leaderboard")',
+      'def leaderboard(): return jsonify({"leaderboard": []})',
+      '@app.route("/history/replay/<match_id>")',
+      'def replay(match_id): return jsonify({"replay": match_id})',
+      '@app.route("/roles/catalog")',
+      'def roles(): return jsonify({"roles": list(ROLE_REGISTRY)})',
+      '@app.route("/shop/inventory")',
+      'def inventory(): return jsonify({"inventory": []})',
+      '@app.route("/admin/metrics")',
+      'def metrics(): return jsonify({"metrics": {}})',
+      '@app.route("/host/room-settings", methods=["POST"])',
+      'def host_settings(): return jsonify({"settings": {}})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<a href="/lobby/rooms">Lobby</a><a href="/ranked/leaderboard">Leaderboard</a><a href="/host/room-settings">Host controls</a>\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'from app import app',
+      '',
+      'def test_product_workflows_are_reachable_with_client():',
+      '    client = app.test_client()',
+      '    assert client.post("/login").status_code == 200',
+      '    assert client.post("/lobby/rooms").status_code == 200',
+      '    assert client.get("/ranked/leaderboard").status_code == 200',
+      '    assert client.get("/history/replay/m1").status_code == 200',
+      '    assert client.post("/host/room-settings").status_code == 200',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(gap.product_maturity?.level).toBe('market_ready');
+    expect(gap.product_maturity?.missing_capabilities).toEqual([]);
+    expect(categories).not.toContain('disconnected_social_product_backbone');
+    expect(categories).not.toContain('below_social_deduction_market_parity');
+  });
+
   it('does not apply social deduction optimization to unrelated voting games', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-voting-game-no-werewolf-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -1080,6 +1523,138 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('missing_user_llm_provider_config');
   });
 
+  it('flags LLM provider selects whose option labels cannot be populated from provider presets', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-llm-empty-provider-select-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# LLM Demo\n\nA browser LLM demo.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, render_template',
+      'from llm_config import public_provider_config',
+      'app = Flask(__name__)',
+      '@app.route("/")',
+      'def index():',
+      '    return render_template("index.html")',
+      '@app.route("/config")',
+      'def config():',
+      '    return jsonify(public_provider_config())',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [',
+      '        {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "models": ["deepseek-chat"]},',
+      '        {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com", "models": ["gpt-4o-mini"]},',
+      '    ], "requires_player_key": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), [
+      '<select id="llmProvider"></select>',
+      '<script>',
+      'async function initProviderSelect() {',
+      '  const cfg = await fetch("/config").then(r => r.json());',
+      '  const providerPresets = Array.isArray(cfg.providers) ? cfg.providers : [];',
+      '  document.getElementById("llmProvider").innerHTML = providerPresets.map(p => `<option value="${p.id}">${p.label}</option>`).join("");',
+      '}',
+      '</script>',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('broken_llm_provider_select_options');
+  });
+
+  it('flags LLM provider catalogs that omit common player-selectable providers', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-llm-provider-catalog-gap-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# LLM Demo\n\nA browser LLM demo.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [',
+      '        {"id": "deepseek", "label": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},',
+      '        {"id": "openai", "label": "OpenAI", "base_url": "https://api.openai.com", "default_model": "gpt-4o-mini"},',
+      '    ], "requires_player_key": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<select id="llmProvider"></select>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('incomplete_llm_provider_catalog');
+  });
+
+  it('flags LLM provider catalogs that are not backed by official model choices', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-llm-official-model-catalog-gap-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# LLM Demo\n\nA browser LLM demo.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [',
+      '        {"id": "deepseek", "label": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},',
+      '        {"id": "minimax", "label": "MiniMax", "base_url": "https://api.minimax.io/v1", "default_model": "MiniMax-M2.7"},',
+      '        {"id": "qwen", "label": "Qwen", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "default_model": "qwen-plus"},',
+      '        {"id": "openai", "label": "OpenAI", "base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini"},',
+      '        {"id": "custom", "label": "Custom", "base_url": "", "default_model": ""},',
+      '    ], "requires_player_key": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<select id="llmProvider"></select><select id="llmModel"></select>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('llm_provider_catalog_missing_official_models');
+  });
+
+  it('flags LLM provider catalogs stale against a refreshed official model catalog', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-llm-stale-model-catalog-gap-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.demo2project', 'research'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# LLM Demo\n\nA browser LLM demo.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\npytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
+    await fs.writeFile(path.join(dir, '.demo2project', 'research', 'llm-model-catalog.json'), JSON.stringify({
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      providers: [{
+        id: 'openai',
+        label: 'OpenAI',
+        base_url: 'https://api.openai.com/v1',
+        default_model: 'gpt-5.4-mini',
+        models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+        source_url: 'https://platform.openai.com/docs/models',
+        source_name: 'OpenAI official model docs',
+        source_kind: 'official_docs_snapshot',
+        retrieved_at: new Date(0).toISOString(),
+      }],
+      warnings: [],
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def public_provider_config():',
+      '    return {"providers": [',
+      '        {"id": "deepseek", "label": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-v4-flash", "models": ["deepseek-v4-flash"], "source_url": "https://api-docs.deepseek.com/api/list-models"},',
+      '        {"id": "minimax", "label": "MiniMax", "base_url": "https://api.minimax.io/v1", "default_model": "MiniMax-M2.7", "models": ["MiniMax-M2.7"], "source_url": "https://platform.minimax.io/docs/guides/text-generation"},',
+      '        {"id": "qwen", "label": "Qwen", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "default_model": "qwen3.6-plus", "models": ["qwen3.6-plus"], "source_url": "https://www.alibabacloud.com/help/en/model-studio/text-generation-model"},',
+      '        {"id": "openai", "label": "OpenAI", "base_url": "https://api.openai.com/v1", "default_model": "gpt-5-mini", "models": ["gpt-5-mini", "gpt-5.2"], "source_url": "https://platform.openai.com/docs/models"},',
+      '        {"id": "custom", "label": "Custom", "base_url": "", "default_model": "", "models": []},',
+      '    ], "requires_player_key": True}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<select id="llmProvider"></select><select id="llmModel"></select>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('llm_provider_catalog_outdated_against_official_refresh');
+  });
+
   it('flags API projects without a contract/runtime harness', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-api-contract-gap-'));
     await fs.mkdir(path.join(dir, 'src'), { recursive: true });
@@ -1106,6 +1681,96 @@ describe('gapAnalyzer', () => {
 
     const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
     expect(gap.findings.map((f) => f.category)).toContain('missing_api_contract_harness');
+  });
+
+  it('flags specialized demo surfaces without a generalized surface contract matrix', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-extension-surface-gap-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Extension Demo\n\nBrowser extension popup prototype.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: 'Extension Demo',
+      version: '0.1.0',
+      action: { default_popup: 'popup.html' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'popup.html'), '<button id="run">Run</button><script src="src/popup.js"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'popup.js'), 'document.getElementById("run").addEventListener("click", () => console.log("demo"));\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('missing_demo_surface_contract_matrix');
+  });
+
+  it('flags specialized demo surfaces without dedicated product contract harnesses', async () => {
+    const extensionDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-extension-contract-gap-'));
+    await fs.writeFile(path.join(extensionDir, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: 'Extension Demo',
+      version: '0.1.0',
+      action: { default_popup: 'popup.html' },
+    }, null, 2));
+    await fs.writeFile(path.join(extensionDir, 'popup.html'), '<main>Popup</main>\n');
+    await fs.writeFile(path.join(extensionDir, 'README.md'), '# Extension Demo\n\n' + 'x'.repeat(420));
+
+    const notebookDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-notebook-contract-gap-'));
+    await fs.writeFile(path.join(notebookDir, 'analysis.ipynb'), JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+    await fs.writeFile(path.join(notebookDir, 'README.md'), '# Notebook Demo\n\n' + 'x'.repeat(420));
+
+    const mobileDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-mobile-contract-gap-'));
+    await fs.writeFile(path.join(mobileDir, 'package.json'), JSON.stringify({ dependencies: { expo: '^54.0.0' } }, null, 2));
+    await fs.writeFile(path.join(mobileDir, 'app.json'), JSON.stringify({ expo: { name: 'Mobile Demo', slug: 'mobile-demo' } }, null, 2));
+    await fs.writeFile(path.join(mobileDir, 'README.md'), '# Mobile Demo\n\n' + 'x'.repeat(420));
+
+    const desktopDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-desktop-contract-gap-'));
+    await fs.writeFile(path.join(desktopDir, 'package.json'), JSON.stringify({ dependencies: { electron: '^39.0.0' } }, null, 2));
+    await fs.writeFile(path.join(desktopDir, 'electron.js'), 'console.log("desktop shell");\n');
+    await fs.writeFile(path.join(desktopDir, 'README.md'), '# Desktop Demo\n\n' + 'x'.repeat(420));
+
+    const extensionCategories = (await new AnalyzerAgent().fullAnalyze(extensionDir)).gap.findings.map((f) => f.category);
+    const notebookCategories = (await new AnalyzerAgent().fullAnalyze(notebookDir)).gap.findings.map((f) => f.category);
+    const mobileCategories = (await new AnalyzerAgent().fullAnalyze(mobileDir)).gap.findings.map((f) => f.category);
+    const desktopCategories = (await new AnalyzerAgent().fullAnalyze(desktopDir)).gap.findings.map((f) => f.category);
+
+    expect(extensionCategories).toContain('missing_browser_extension_contract_harness');
+    expect(notebookCategories).toContain('missing_notebook_contract_harness');
+    expect(mobileCategories).toContain('missing_mobile_contract_harness');
+    expect(desktopCategories).toContain('missing_desktop_contract_harness');
+  });
+
+  it('flags game, 3D, ML and media demos without dedicated product contract harnesses', async () => {
+    const gameDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-game-contract-gap-'));
+    await fs.mkdir(path.join(gameDir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(gameDir, 'package.json'), JSON.stringify({ dependencies: { phaser: '^3.90.0' } }, null, 2));
+    await fs.writeFile(path.join(gameDir, 'src', 'game.js'), 'const game = new Phaser.Game({ scene: {} });\n');
+    await fs.writeFile(path.join(gameDir, 'README.md'), '# Game Demo\n\n' + 'x'.repeat(420));
+
+    const sceneDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-3d-contract-gap-'));
+    await fs.mkdir(path.join(sceneDir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(sceneDir, 'package.json'), JSON.stringify({ dependencies: { three: '^0.180.0' } }, null, 2));
+    await fs.writeFile(path.join(sceneDir, 'src', 'scene.js'), 'const renderer = new THREE.WebGLRenderer();\n');
+    await fs.writeFile(path.join(sceneDir, 'README.md'), '# 3D Demo\n\n' + 'x'.repeat(420));
+
+    const mlDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-ml-contract-gap-'));
+    await fs.writeFile(path.join(mlDir, 'package.json'), JSON.stringify({ dependencies: { 'onnxruntime-web': '^1.23.0' } }, null, 2));
+    await fs.writeFile(path.join(mlDir, 'model.onnx'), 'placeholder model bytes\n');
+    await fs.writeFile(path.join(mlDir, 'README.md'), '# ML Demo\n\n' + 'x'.repeat(420));
+
+    const mediaDir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-media-contract-gap-'));
+    await fs.mkdir(path.join(mediaDir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(mediaDir, 'package.json'), JSON.stringify({ dependencies: { sharp: '^0.34.0' } }, null, 2));
+    await fs.writeFile(path.join(mediaDir, 'src', 'process-media.js'), 'import sharp from "sharp"; await sharp("in.png").resize(128).toFile("out.png");\n');
+    await fs.writeFile(path.join(mediaDir, 'README.md'), '# Media Demo\n\n' + 'x'.repeat(420));
+
+    const gameCategories = (await new AnalyzerAgent().fullAnalyze(gameDir)).gap.findings.map((f) => f.category);
+    const sceneCategories = (await new AnalyzerAgent().fullAnalyze(sceneDir)).gap.findings.map((f) => f.category);
+    const mlCategories = (await new AnalyzerAgent().fullAnalyze(mlDir)).gap.findings.map((f) => f.category);
+    const mediaCategories = (await new AnalyzerAgent().fullAnalyze(mediaDir)).gap.findings.map((f) => f.category);
+
+    expect(gameCategories).toContain('missing_game_contract_harness');
+    expect(sceneCategories).toContain('missing_3d_scene_contract_harness');
+    expect(mlCategories).toContain('missing_ml_model_contract_harness');
+    expect(mediaCategories).toContain('missing_media_pipeline_contract_harness');
   });
 
   it('lets the analyzer audit suppress unsupported agent misjudgments before planning', async () => {

@@ -146,6 +146,40 @@ describe('projectScorer', () => {
     expect(score.notes.join('\n')).toContain('CI workflow appears empty or non-verifying');
   });
 
+  it('does not treat redaction regex literals as leaked private keys', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-redaction-regex-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\n## Usage\n\nRun the Flask demo.\n' + 'x'.repeat(260));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'redaction-regex',
+      scripts: {
+        test: 'python3 -m pytest -q',
+        build: 'python3 -m py_compile app.py',
+      },
+    }));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'import re',
+      '',
+      'def redact(text):',
+      '    text = re.sub(r"sk-[a-zA-Z0-9]{20,}", "[API_KEY_REDACTED]", text)',
+      '    return re.sub(r"-----BEGIN PRIVATE KEY-----.*?-----END PRIVATE KEY-----", "[PRIVATE_KEY_REDACTED]", text)',
+      '',
+    ].join('\n'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'from app import redact',
+      '',
+      'def test_redacts_dummy_key_fixture():',
+      '    assert redact("sk-1234567890abcdefghij") == "[API_KEY_REDACTED]"',
+      '',
+    ].join('\n'));
+
+    const snap = await takeSnapshot(dir);
+    const score = await scoreProject(snap);
+
+    expect(score.breakdown.safety_score).toBe(8);
+    expect(score.notes.join('\n')).not.toContain('forbidden pattern matched');
+  });
+
   it('credits CI process only when workflows run real verification commands', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-real-ci-'));
     await fs.writeFile(path.join(dir, 'README.md'), '# Demo\n\n## Install\n\nnpm install\n\n## Usage\n\nRun the checked Node demo locally.\n' + 'x'.repeat(260));
@@ -173,7 +207,43 @@ describe('projectScorer', () => {
     const snap = await takeSnapshot(dir);
     const score = await scoreProject(snap);
 
-    expect(score.breakdown.agent_process_score).toBe(5);
+    expect(score.breakdown.agent_process_score).toBe(7);
     expect(score.notes.join('\n')).not.toContain('CI workflow appears empty or non-verifying');
+  });
+
+  it('credits mjs product cores as maintainable source and package bin as runtime', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-score-product-core-cli-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Product CLI\n\n## Install\n\nnpm install\n\n## Usage\n\nRun the product CLI with `product --help` or `npm test`.\n\n## Verification\n\nUse `npm test` and `npm run build`.\n' + 'x'.repeat(320));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'product-cli',
+      type: 'module',
+      bin: { product: './bin/product.js' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'bin', 'product.js'), '#!/usr/bin/env node\nimport { runWorkflow } from "../src/product-core.mjs";\nconsole.log(JSON.stringify(runWorkflow("status")));\n');
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function runWorkflow(name = "status") { return { ok: true, name }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { runWorkflow } from "../src/product-core.mjs"; test("product core workflow", () => assert.equal(runWorkflow("status").ok, true));\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n');
+    await fs.writeFile(path.join(dir, '.env.example'), 'NODE_ENV=development\nLOG_LEVEL=info\n');
+    await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n.env\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: npm test\n      - run: npm run build\n');
+
+    const snap = await takeSnapshot(dir);
+    const score = await scoreProject(snap);
+
+    expect(score.breakdown.runtime_score).toBeGreaterThanOrEqual(8);
+    expect(score.breakdown.test_score).toBeGreaterThanOrEqual(15);
+    expect(score.breakdown.maintainability_score).toBe(10);
+    expect(score.total).toBeGreaterThanOrEqual(86);
+    expect(score.grade).toBe('production_ready_baseline');
   });
 });
