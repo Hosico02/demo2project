@@ -6,6 +6,8 @@ import type {
   AgentResult,
   ProjectStandard,
   AgentTask,
+  AdvisoryAgentRole,
+  AdvisoryReport,
 } from '../core/types.js';
 import { AnalyzerAgent } from './AnalyzerAgent.js';
 import { PlannerAgent } from './PlannerAgent.js';
@@ -29,6 +31,15 @@ import { QACaseStore } from '../qa/QACaseStore.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
 import { nowIso, shortId } from '../utils/time.js';
 import type { AgentProvider } from './providers/AgentProvider.js';
+import type { AdvisoryProvider } from './advisory/AdvisoryProvider.js';
+import { ModelAdvisoryAgent } from './advisory/ModelAdvisoryAgent.js';
+import {
+  loadMarketResearchReport,
+  runMarketResearch,
+  writeMarketResearchReport,
+} from '../research/MarketResearchAgent.js';
+import { ControlledWebSearchProvider, type SearchProvider } from '../research/SearchProvider.js';
+import { defaultMarketResearchQuery, inferMarketResearchDomain } from '../research/domainInference.js';
 
 export interface RetryPolicy {
   /** Max attempts INCLUDING the first try. 1 = no retry. */
@@ -55,6 +66,16 @@ export interface IterateOptions {
   /** Controlled opt-in refresh for provider-owned LLM model docs before planning. */
   officialModelCatalog?: Omit<RefreshOfficialModelCatalogOptions, 'projectPath' | 'systemRoot'> & {
     mode?: 'auto' | 'always';
+  };
+  /** Optional model-backed advisory agents. They can enrich planning but cannot pass readiness gates. */
+  advisory?: {
+    provider: AdvisoryProvider;
+    roles?: AdvisoryAgentRole[];
+    allowNetwork?: boolean;
+    /** When true, run controlled market research before analysis so gap/advisory share source-backed competitor context. */
+    autoResearch?: boolean;
+    /** Test/integration seam for controlled search. Defaults to DuckDuckGo HTML provider under NetworkGuard. */
+    searchProvider?: SearchProvider;
   };
 }
 
@@ -101,6 +122,7 @@ export class SupervisorAgent {
     let prevScore = -1;
     let noProgressRounds = 0;
     let officialModelCatalogRefreshAttempted = false;
+    let advisoryResearchAttempted = false;
 
     const workspace = opts.useWorktree ? new IterationWorkspace(opts.projectPath) : null;
 
@@ -135,6 +157,10 @@ export class SupervisorAgent {
       if (!officialModelCatalogRefreshAttempted) {
         officialModelCatalogRefreshAttempted = true;
         await this.refreshOfficialModelCatalogIfRequested(opts, iterationId, store);
+      }
+      if (!advisoryResearchAttempted) {
+        advisoryResearchAttempted = true;
+        await this.refreshAdvisoryMarketResearchIfRequested(opts, iterationId, store);
       }
 
       // 1. analyze
@@ -189,6 +215,15 @@ export class SupervisorAgent {
           related_files: audit.related_files,
           metadata: { finding_id: audit.finding_id, action: audit.action },
         });
+      }
+
+      const advisoryReports = await this.runAdvisoryIfRequested(opts, iterationId, store, graph, {
+        snapshot,
+        score: scoreBefore,
+        gap,
+      });
+      if (advisoryReports.length > 0) {
+        gap.advisory_reports = advisoryReports;
       }
 
       // 2. preflight QA cases (consults global+workspace+repo scopes when systemRoot is provided)
@@ -475,6 +510,143 @@ export class SupervisorAgent {
         message: `official LLM model catalog refresh skipped: ${err instanceof Error ? err.message : String(err)}`,
         metadata: { official_model_catalog_refresh: 'failed' },
       });
+    }
+  }
+
+  private async refreshAdvisoryMarketResearchIfRequested(
+    opts: IterateOptions,
+    iterationId: string,
+    store: EventStore,
+  ): Promise<void> {
+    if (!opts.advisory?.autoResearch) return;
+    if (!opts.advisory.allowNetwork) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'advisory',
+        event_type: 'note',
+        severity: 'medium',
+        message: 'advisory market research skipped: --web network opt-in is required',
+        metadata: { advisory_research: 'skipped_no_network' },
+      });
+      return;
+    }
+    try {
+      const snapshot = await this.analyzer.snapshot(opts.projectPath);
+      const domain = inferMarketResearchDomain(snapshot);
+      const query = defaultMarketResearchQuery(domain);
+      const provider = opts.advisory.searchProvider ?? new ControlledWebSearchProvider({
+        systemRoot: opts.projectPath,
+        allowNetwork: true,
+      });
+      const report = await runMarketResearch({
+        projectPath: opts.projectPath,
+        domain,
+        query,
+        provider,
+        maxResults: 8,
+      });
+      await writeMarketResearchReport(opts.projectPath, report);
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'advisory',
+        event_type: 'note',
+        severity: report.confidence === 'low' ? 'medium' : 'info',
+        message: `advisory market research refreshed for ${domain}: ${report.sources.length} source(s), ${report.capabilities.length} capability(ies)`,
+        metadata: {
+          advisory_research: 'refreshed',
+          domain,
+          query,
+          provider: provider.name,
+          source_count: report.sources.length,
+          capability_count: report.capabilities.length,
+          confidence: report.confidence,
+        },
+      });
+    } catch (err) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'advisory',
+        event_type: 'note',
+        severity: 'medium',
+        message: `advisory market research skipped: ${err instanceof Error ? err.message : String(err)}`,
+        metadata: { advisory_research: 'failed_closed' },
+      });
+    }
+  }
+
+  private async runAdvisoryIfRequested(
+    opts: IterateOptions,
+    iterationId: string,
+    store: EventStore,
+    graph: EvidenceGraph,
+    input: {
+      snapshot: Awaited<ReturnType<AnalyzerAgent['snapshot']>>;
+      score: Awaited<ReturnType<AnalyzerAgent['score']>>;
+      gap: Awaited<ReturnType<AnalyzerAgent['gap']>>;
+    },
+  ): Promise<AdvisoryReport[]> {
+    if (!opts.advisory?.provider) return [];
+    const roles = opts.advisory.roles ?? [
+      'market_comparator',
+      'gap_critic',
+      'planner_critic',
+      'reviewer_critic',
+    ];
+    try {
+      const marketResearch = await loadMarketResearchReport(opts.projectPath);
+      const reports = await new ModelAdvisoryAgent(opts.advisory.provider).runMany(roles, {
+        projectPath: opts.projectPath,
+        goal: opts.goal,
+        snapshot: input.snapshot,
+        score: input.score,
+        gap: input.gap,
+        allowNetwork: opts.advisory.allowNetwork === true,
+        marketResearch,
+      });
+      for (const report of reports) {
+        const findingCount = report.findings.length;
+        const proposalCount = report.task_proposals.length;
+        await store.append({
+          iteration_id: iterationId,
+          agent: 'advisory',
+          event_type: 'note',
+          severity: findingCount + proposalCount > 0 ? 'medium' : 'info',
+          message: `advisory ${report.role} produced ${findingCount} finding(s), ${proposalCount} task proposal(s)`,
+          metadata: {
+            role: report.role,
+            provider: report.provider,
+            model: report.model,
+            gate_policy: report.gate_policy,
+            risks: report.risks,
+          },
+        });
+        graph.addEvidence({
+          type: 'note',
+          source_agent: 'advisory',
+          content_summary: `${report.role}: ${findingCount} finding(s), ${proposalCount} task proposal(s)`,
+          confidence: report.findings.some((finding) => finding.confidence === 'high') ||
+            report.task_proposals.some((proposal) => proposal.confidence === 'high')
+            ? 'high'
+            : 'medium',
+          metadata: {
+            role: report.role,
+            provider: report.provider,
+            model: report.model,
+            gate_policy: report.gate_policy,
+          },
+        });
+      }
+      return reports;
+    } catch (err) {
+      await store.append({
+        iteration_id: iterationId,
+        agent: 'advisory',
+        event_type: 'note',
+        severity: 'medium',
+        message: `advisory agents skipped: ${err instanceof Error ? err.message : String(err)}`,
+        metadata: { advisory: 'failed_closed' },
+      });
+      return [];
     }
   }
 }

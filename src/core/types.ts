@@ -20,6 +20,7 @@ export type AgentName =
   | 'executor'
   | 'verifier'
   | 'reviewer'
+  | 'advisory'
   | 'memory'
   | 'qa';
 
@@ -210,6 +211,50 @@ export interface GapFinding {
   related_files: string[];
 }
 
+export type AdvisoryAgentRole =
+  | 'market_comparator'
+  | 'gap_critic'
+  | 'planner_critic'
+  | 'reviewer_critic';
+
+export type AdvisoryConfidence = 'high' | 'medium' | 'low';
+
+export interface AdvisoryFinding {
+  category: string;
+  severity: Severity;
+  message: string;
+  why_it_matters: string;
+  suggested_fix: string;
+  related_files: string[];
+  confidence: AdvisoryConfidence;
+  source_urls: string[];
+  evidence: string[];
+}
+
+export interface AdvisoryTaskProposal {
+  title: string;
+  description: string;
+  acceptance_criteria: string[];
+  expected_changed_files: string[];
+  verification_commands: string[];
+  priority: Severity;
+  confidence: AdvisoryConfidence;
+  source_urls: string[];
+}
+
+export interface AdvisoryReport {
+  schema_version: 1;
+  generated_at: string;
+  role: AdvisoryAgentRole;
+  provider: string;
+  model?: string;
+  gate_policy: string;
+  findings: AdvisoryFinding[];
+  task_proposals: AdvisoryTaskProposal[];
+  risks: string[];
+  raw_summary: string;
+}
+
 export interface AgentMisjudgmentAudit {
   finding_id: string;
   finding_category: string;
@@ -227,6 +272,7 @@ export interface GapReport {
   recommendations: string[];
   product_maturity?: ProductMaturityAssessment;
   agent_misjudgments?: AgentMisjudgmentAudit[];
+  advisory_reports?: AdvisoryReport[];
 }
 
 export interface IterationPlan {
@@ -238,6 +284,7 @@ export interface IterationPlan {
   risk_level: Severity;
   expected_score_delta: number;
   stop_conditions: string[];
+  advisory_focus?: string[];
 }
 
 // --- QA ------------------------------------------------------------------

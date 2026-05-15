@@ -13,6 +13,7 @@ describe('CLI help output', () => {
     expect(r.stdout).toContain('Quickstart');
     expect(r.stdout).toContain('Core');
     expect(r.stdout).toContain('Security');
+    expect(r.stdout).toContain('--advisory-agents');
   });
   it('unknown command yields exit code 2', () => {
     const r = spawnSync('node', [cli, 'this-does-not-exist'], { encoding: 'utf8' });

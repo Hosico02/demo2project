@@ -7,6 +7,10 @@ import { MockAgentProvider } from '../src/agents/providers/MockAgentProvider.js'
 import { RuleBasedExecutor } from '../src/agents/providers/RuleBasedExecutor.js';
 import { AnalyzerAgent } from '../src/agents/AnalyzerAgent.js';
 import { loadOfficialModelCatalog } from '../src/research/OfficialModelCatalog.js';
+import { MockAdvisoryProvider } from '../src/agents/advisory/MockAdvisoryProvider.js';
+import { loadMarketResearchReport } from '../src/research/MarketResearchAgent.js';
+import type { SearchProvider } from '../src/research/SearchProvider.js';
+import type { MarketResearchReport } from '../src/research/types.js';
 
 async function tmpDemo(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-sup-'));
@@ -104,6 +108,97 @@ describe('SupervisorAgent.iterate', () => {
 
     expect(fetchCount).toBe(0);
     await expect(loadOfficialModelCatalog(demo)).resolves.toBeNull();
+  });
+
+  it('runs advisory agents before planning and includes source-backed proposals as normal tasks', async () => {
+    const provider = new MockAdvisoryProvider({
+      task_proposals: [{
+        title: 'Implement competitor-informed onboarding flow',
+        description: 'Add a real first-run workflow identified by market comparison.',
+        acceptance_criteria: ['first-run workflow is reachable', 'test covers first-run workflow'],
+        expected_changed_files: ['src/onboarding.js', 'tests/onboarding.test.js'],
+        verification_commands: ['npm test -- onboarding'],
+        priority: 'high',
+        confidence: 'high',
+        source_urls: ['https://example.com/mature-product-onboarding'],
+      }],
+    });
+
+    const summaries = await new SupervisorAgent().iterate({
+      projectPath: demo,
+      goal: 'project-ready with model-backed advisory agents',
+      provider: new MockAgentProvider('happy'),
+      maxIterations: 1,
+      advisory: {
+        provider,
+        roles: ['planner_critic'],
+        allowNetwork: true,
+      },
+    });
+
+    const summary = summaries[0]!;
+    expect(summary.gap_report.advisory_reports?.[0]?.role).toBe('planner_critic');
+    expect(summary.iteration_plan.advisory_focus).toContain('planner_critic: Implement competitor-informed onboarding flow');
+    expect(summary.assigned_tasks.map((task) => task.title)).toContain('Implement competitor-informed onboarding flow');
+  });
+
+  it('runs controlled market research before model-backed advisory planning when requested', async () => {
+    await fs.mkdir(path.join(demo, 'src'), { recursive: true });
+    await fs.writeFile(path.join(demo, 'package.json'), JSON.stringify({
+      name: 'demo',
+      scripts: { dev: 'vite' },
+      dependencies: { vue: '^3.5.0', vite: '^5.0.0' },
+    }, null, 2));
+    await fs.writeFile(path.join(demo, 'src', 'App.vue'), '<template><main>Hello</main></template>\n');
+
+    const queries: string[] = [];
+    const searchProvider: SearchProvider = {
+      name: 'fake-search',
+      async search(query) {
+        queries.push(query);
+        return [
+          {
+            title: 'Production UI accessibility guide',
+            url: 'https://example.com/accessibility-responsive-keyboard-touch',
+            snippet: 'responsive accessibility keyboard touch aria onboarding error state support',
+          },
+          {
+            title: 'Mature product onboarding patterns',
+            url: 'https://example.com/onboarding-loading-error-state',
+            snippet: 'onboarding loading empty state error state retry support',
+          },
+        ];
+      },
+    };
+
+    let capturedResearch: MarketResearchReport | null | undefined;
+    const advisoryProvider = new MockAdvisoryProvider({
+      raw_summary: 'capture market research',
+      onRequest: (request) => {
+        capturedResearch = request.marketResearch;
+      },
+    });
+
+    const summaries = await new SupervisorAgent().iterate({
+      projectPath: demo,
+      goal: 'project-ready with current competitor context',
+      provider: new MockAgentProvider('happy'),
+      maxIterations: 1,
+      advisory: {
+        provider: advisoryProvider,
+        roles: ['market_comparator'],
+        allowNetwork: true,
+        autoResearch: true,
+        searchProvider,
+      },
+    });
+
+    const report = await loadMarketResearchReport(demo);
+    expect(queries[0]).toContain('production web UI');
+    expect(report?.domain).toBe('web_ui_app');
+    expect(report?.sources.length).toBe(2);
+    expect(capturedResearch?.capabilities.map((cap) => cap.id)).toContain('responsive_accessible_ui');
+    expect(summaries[0]!.gap_report.product_maturity?.domain).toBe('web_ui_app');
   });
 
   it('refuses to mark a change-without-verify task as completed', async () => {

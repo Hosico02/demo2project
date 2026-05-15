@@ -4,6 +4,8 @@ import type {
   AgentTask,
   Severity,
   QACase,
+  AdvisoryReport,
+  AdvisoryTaskProposal,
 } from './types.js';
 import { shortId } from '../utils/time.js';
 
@@ -41,6 +43,8 @@ export function planIteration(
   const tasks: AgentTask[] = [];
   const selectedFindings: typeof sortedFindings = [];
   const seenTaskKeys = new Set<string>();
+  const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId);
+  const maxFindingTasks = advisoryTasks.length > 0 ? MAX_TASKS_PER_ITERATION - 1 : MAX_TASKS_PER_ITERATION;
 
   for (const f of sortedFindings) {
     const task = buildTaskForFinding(
@@ -56,6 +60,13 @@ export function planIteration(
     seenTaskKeys.add(key);
     tasks.push(task);
     selectedFindings.push(f);
+    if (tasks.length >= maxFindingTasks) break;
+  }
+  for (const advisoryTask of advisoryTasks) {
+    const key = taskDedupKey(advisoryTask);
+    if (seenTaskKeys.has(key)) continue;
+    seenTaskKeys.add(key);
+    tasks.push(advisoryTask);
     if (tasks.length >= MAX_TASKS_PER_ITERATION) break;
   }
   applyQaFocus(tasks, qaFocusCases);
@@ -87,7 +98,47 @@ export function planIteration(
       'safety_violation_detected',
       'user_requested_stop',
     ],
+    advisory_focus: advisoryTasks.map((task) => task.description.match(/Advisory role: ([^\n]+)/)?.[1] ?? task.title),
   };
+}
+
+function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string): AgentTask[] {
+  const tasks: AgentTask[] = [];
+  for (const report of reports) {
+    for (const proposal of report.task_proposals) {
+      if (!isActionableAdvisoryProposal(proposal)) continue;
+      tasks.push({
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: proposal.title,
+        description: [
+          proposal.description,
+          '',
+          `Advisory role: ${report.role}: ${proposal.title}`,
+          `Advisory source (${proposal.confidence} confidence): ${proposal.source_urls.join(', ')}`,
+          'Advisory agents can propose this work, but verifier/scorer gates remain authoritative.',
+        ].join('\n'),
+        acceptance_criteria: proposal.acceptance_criteria,
+        expected_changed_files: proposal.expected_changed_files.length > 0
+          ? proposal.expected_changed_files
+          : ['(advisory proposal did not name expected files)'],
+        verification_commands: proposal.verification_commands,
+        priority: proposal.priority,
+        status: 'pending',
+      });
+    }
+  }
+  return tasks
+    .sort((a, b) => sevRank(a.priority) - sevRank(b.priority))
+    .slice(0, 1);
+}
+
+function isActionableAdvisoryProposal(proposal: AdvisoryTaskProposal): boolean {
+  return (proposal.confidence === 'high' || proposal.confidence === 'medium') &&
+    proposal.source_urls.some((url) => /^https?:\/\//i.test(url)) &&
+    proposal.verification_commands.length > 0 &&
+    proposal.acceptance_criteria.length > 0;
 }
 
 function selectQaFocusCases(cases: QACase[]): QACase[] {

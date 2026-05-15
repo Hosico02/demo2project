@@ -20,7 +20,7 @@ documents every command grouped by intent.
 | `analyze --project <path>` | ProjectSnapshot + ProjectScore |
 | `gap --project <path>` | GapReport |
 | `plan --project <path>` | IterationPlan (no writes) |
-| `iterate --project <path> [--web]` | Iteration round. With `--web`, MatrixOmnix refreshes the official LLM model catalog before planning when an LLM/provider surface is detected, so provider/model selector repairs can use current source-cited model choices without researching unrelated projects. |
+| `iterate --project <path> [--web] [--advisory-agents]` | Iteration round. With `--web`, MatrixOmnix refreshes the official LLM model catalog before planning when an LLM/provider surface is detected, so provider/model selector repairs can use current source-cited model choices without researching unrelated projects. With `--advisory-agents`, MatrixOmnix also runs controlled market research plus model-backed advisory critics before planning and can reserve a task slot for high-confidence, source-backed proposals. |
 | `self-check` | Run analyze/gap/regression + probes |
 | `self-iterate[-sandbox]` | Read-only/worktree-bounded self-iteration |
 | `benchmark` | Score every project under benchmarks/ + examples/ |
@@ -49,6 +49,25 @@ target project already exposes an LLM/provider/model surface or an existing
 catalog. If an official page cannot be fetched or parsed, MatrixOmnix records a
 warning and falls back to its source-cited snapshot seed instead of inventing
 model IDs.
+
+Model-backed advisory agents are also behind explicit network opt-in:
+
+```bash
+pnpm matrixomnix iterate \
+  --project /path/to/demo \
+  --provider minimax \
+  --web \
+  --advisory-agents \
+  --advisory-provider minimax \
+  --advisory-roles market_comparator,gap_critic,planner_critic,reviewer_critic
+```
+
+Advisory mode infers the project domain, writes a source-cited
+`.demo2project/research/latest.json`, gives that report to model-backed critics,
+and then lets them compare against mature products, critique the gap report and
+propose verifiable work. They cannot pass the project. Their output is
+normalized, low-confidence or unsourced advice is discarded, and the Verifier,
+Reviewer and Scorer remain the release gates.
 
 ## QA
 

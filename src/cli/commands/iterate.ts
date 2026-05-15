@@ -7,6 +7,8 @@ import { ClaudeCodeProvider, ClaudeCliProvider } from '../../agents/providers/Cl
 import { MiniMaxProvider } from '../../agents/providers/MiniMaxProvider.js';
 import { CodexProvider, DevinProvider, OpenHandsProvider, AiderProvider } from '../../agents/providers/FutureProvider.js';
 import type { AgentProvider } from '../../agents/providers/AgentProvider.js';
+import type { AdvisoryAgentRole } from '../../core/types.js';
+import { MiniMaxAdvisoryProvider } from '../../agents/advisory/MiniMaxAdvisoryProvider.js';
 import { flagNumber, flagString, requireProject } from './_shared.js';
 
 export async function iterate(flags: Record<string, string | boolean>): Promise<number> {
@@ -18,8 +20,13 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
   const mode = (flagString(flags, 'mode', 'happy') ?? 'happy') as MockMode;
   const allowWeb = flags.web === true || flags.web === 'true';
   const refreshModels = allowWeb || flags['refresh-models'] === true || flags['refresh-models'] === 'true';
+  const useAdvisoryAgents = flags['advisory-agents'] === true || flags['advisory-agents'] === 'true';
   if (refreshModels && !allowWeb) {
     process.stderr.write('error: official model refresh requires explicit --web network opt-in\n');
+    return 2;
+  }
+  if (useAdvisoryAgents && !allowWeb) {
+    process.stderr.write('error: model-backed advisory agents require explicit --web network opt-in\n');
     return 2;
   }
 
@@ -64,6 +71,8 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
   const supervisor = new SupervisorAgent();
   const systemRoot = flagString(flags, 'system-root', defaultSystemRoot())!;
   const useWorktree = flags['use-worktree'] === true || flags['use-worktree'] === 'true';
+  const advisoryProvider = useAdvisoryAgents ? buildAdvisoryProvider(flags) : null;
+  if (useAdvisoryAgents && !advisoryProvider) return 2;
   const summaries = await supervisor.iterate({
     projectPath: project,
     goal,
@@ -72,6 +81,14 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
     systemRoot,
     useWorktree,
     officialModelCatalog: refreshModels ? { allowNetwork: allowWeb } : undefined,
+    advisory: advisoryProvider
+      ? {
+        provider: advisoryProvider,
+        roles: advisoryRoles(flags),
+        allowNetwork: allowWeb,
+        autoResearch: true,
+      }
+      : undefined,
   });
 
   for (const s of summaries) {
@@ -86,6 +103,29 @@ export async function iterate(flags: Record<string, string | boolean>): Promise<
     `\ndone — ${summaries.length} iteration(s). State persisted under <project>/.demo2project/.\n`,
   );
   return 0;
+}
+
+function buildAdvisoryProvider(flags: Record<string, string | boolean>) {
+  const providerName = flagString(flags, 'advisory-provider', 'minimax')!;
+  switch (providerName) {
+    case 'minimax':
+    case 'minimax-m27':
+      return new MiniMaxAdvisoryProvider({ enabled: true });
+    default:
+      process.stderr.write(`error: unknown advisory provider "${providerName}"\n`);
+      return null;
+  }
+}
+
+function advisoryRoles(flags: Record<string, string | boolean>): AdvisoryAgentRole[] {
+  const raw = flagString(flags, 'advisory-roles', '');
+  const allowed: AdvisoryAgentRole[] = ['market_comparator', 'gap_critic', 'planner_critic', 'reviewer_critic'];
+  if (!raw) return allowed;
+  const selected = raw
+    .split(',')
+    .map((role) => role.trim())
+    .filter((role): role is AdvisoryAgentRole => allowed.includes(role as AdvisoryAgentRole));
+  return selected.length > 0 ? selected : allowed;
 }
 
 function defaultSystemRoot(): string {

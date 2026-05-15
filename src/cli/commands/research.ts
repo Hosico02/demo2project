@@ -4,6 +4,7 @@ import {
 } from '../../research/MarketResearchAgent.js';
 import { ControlledWebSearchProvider, ResearchNetworkDeniedError } from '../../research/SearchProvider.js';
 import type { MarketResearchDomain } from '../../research/types.js';
+import { defaultMarketResearchQuery } from '../../research/domainInference.js';
 import { flagNumber, flagString, requireProject } from './_shared.js';
 
 const DOMAINS: MarketResearchDomain[] = [
@@ -29,7 +30,7 @@ export async function researchCmd(flags: Record<string, string | boolean>): Prom
     process.stderr.write('error: research networking is disabled by default; pass --web to run the controlled search provider\n');
     return 2;
   }
-  const query = flagString(flags, 'query', defaultQuery(domain))!;
+  const query = flagString(flags, 'query', defaultMarketResearchQuery(domain))!;
   const maxResults = flagNumber(flags, 'max-results', 8);
   const provider = new ControlledWebSearchProvider({
     systemRoot: project,
@@ -69,23 +70,4 @@ export async function researchCmd(flags: Record<string, string | boolean>): Prom
 
 function parseDomain(raw: string): MarketResearchDomain | null {
   return DOMAINS.includes(raw as MarketResearchDomain) ? raw as MarketResearchDomain : null;
-}
-
-function defaultQuery(domain: MarketResearchDomain): string {
-  switch (domain) {
-    case 'web_ui_app':
-      return 'best production web UI product accessibility responsive onboarding patterns';
-    case 'social_deduction_game':
-      return 'mature online werewolf social deduction game product features matchmaking moderation ranked';
-    case 'saas_app':
-      return 'mature SaaS product features onboarding auth billing analytics support';
-    case 'api_service':
-      return 'production API product requirements openapi auth rate limits observability';
-    case 'cli_tool':
-      return 'production CLI tool requirements install help diagnostics configuration';
-    case 'game':
-      return 'mature web game product features onboarding progression settings accessibility';
-    default:
-      return 'mature software product features onboarding verification documentation support';
-  }
 }

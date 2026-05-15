@@ -25,6 +25,7 @@ pnpm matrixomnix models:refresh --project /path/to/your/repo --web
 pnpm matrixomnix gap --project /path/to/your/repo
 pnpm matrixomnix trust:check --project /path/to/your/repo
 pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1 --web
+pnpm matrixomnix iterate --project /path/to/your/repo --provider minimax --max-iterations 1 --web --advisory-agents
 pnpm matrixomnix report:project --project /path/to/your/repo
 ```
 
@@ -32,6 +33,14 @@ pnpm matrixomnix report:project --project /path/to/your/repo
 before planning when an LLM/provider surface is detected, so provider/model
 selectors can be repaired from current provider-owned documentation during the
 normal demo-to-product loop without adding model research to unrelated demos.
+
+`iterate --web --advisory-agents` adds a model-backed critique layer before
+planning. MatrixOmnix first runs controlled, source-cited market research for
+the detected project domain, then gives that report to advisory roles that
+compare the demo against mature products, challenge the gap report and planner,
+and can reserve one task slot for high-confidence, source-backed work. They
+cannot mark a project product-ready: unsourced advice is dropped, and the
+Verifier, Reviewer and Scorer remain authoritative.
 
 Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
@@ -58,6 +67,10 @@ The current system is intentionally strict about evidence:
 - `analyze` and `gap` separate project structure from real product readiness.
 - `research --web` records source-cited competitor capabilities under
   `.demo2project/research`.
+- `iterate --web --advisory-agents` runs controlled market research, then
+  model-backed market, gap, planner and reviewer critics before planning, while
+  still requiring source URLs and local verification commands before their
+  proposals become normal tasks.
 - `iterate` plans bounded tasks and verifies them locally before accepting
   progress.
 - failed verification becomes repair work before normal productization
@@ -91,6 +104,9 @@ Near-term work focuses on making the beta harder to fool:
   in-memory product skeletons;
 - more reliable MiniMax and other API-backed provider execution, including
   base64 edit payloads for large file edits;
+- richer model-backed advisory teams that use controlled search against current
+  competitors, critique domain-specific expectations and feed only source-backed,
+  verifiable proposals into the local iteration plan;
 - deeper UI/browser checks for accessibility, responsive layout, touch,
   keyboard and render-smoke behavior;
 - broader project-surface harnesses for API, CLI, data, worker, game, ML,
@@ -293,6 +309,8 @@ For MiniMax live runs, set `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`.
 The default model is `MiniMax-M2.7-highspeed`; override it with
 `MINIMAX_MODEL` when needed. The default MiniMax base URL is
 `https://api.minimaxi.com/v1`; override it with `MINIMAX_BASE_URL` when needed.
+The same key/model settings are used by `--advisory-agents` when
+`--advisory-provider minimax` is selected.
 
 ```bash
 # Inspect a project
@@ -306,6 +324,15 @@ pnpm matrixomnix iterate \
   --goal "project-ready" \
   --max-iterations 1 \
   --provider mock --mode happy
+
+# Run a model-backed iteration with source-backed advisory critics
+pnpm matrixomnix iterate \
+  --project examples/bad-demo \
+  --goal "product-ready baseline" \
+  --max-iterations 1 \
+  --provider minimax \
+  --web \
+  --advisory-agents
 
 # QA workflow
 pnpm matrixomnix qa:preflight --project examples/bad-demo
@@ -330,12 +357,19 @@ to start fresh.
   set of projectization fixes and records verification evidence. It now covers
   README/env/gitignore/CI/smoke tests plus single-file intake, CLI, API,
   config, data, worker and UI harness scaffolds.
+- `MiniMaxProvider` — real MiniMax API-backed executor. Set
+  `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`; the executor still reports
+  changed files and verification commands through the same gate.
 - `ClaudeCodeProvider` — real `claude -p` subprocess driver. Set
   `DEMO2PROJECT_CLAUDE_CODE=1` to arm; the JSON protocol is documented in
   `docs/architecture.md`.
+- `MiniMaxAdvisoryProvider` — model-backed market/gap/planner/reviewer critic
+  used by `iterate --web --advisory-agents`. It can propose work, but never
+  edits files directly and never passes the release gate.
 
-The system **must work end-to-end without any external API** — that is the
-MVP guarantee. Real model-driven providers attach in Phase 2.
+The system still works end-to-end without any external API through deterministic
+providers. Model-backed providers add stronger implementation and critique, but
+their claims are only accepted after local verification and scoring.
 
 ---
 

@@ -143,7 +143,9 @@ Research:
 
 Iteration:
   plan        --project <path>                   IterationPlan (no writes)
-  iterate     --project <path> [--web]           Iteration round; --web refreshes official LLM model docs
+  iterate     --project <path> [--web] [--advisory-agents]
+                                                 Iteration round; --web refreshes official LLM model docs
+                                                 --advisory-agents runs controlled research + model critics before planning
   autonomy:run --project <path>                  Long-horizon autonomous session
 
 Reports:
