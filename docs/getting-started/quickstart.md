@@ -43,6 +43,8 @@ A Markdown + JSON report is written to `reports/project-report/`. Open it in you
 
 - Demo2Project **scored** your repo across 9 dimensions (0–100).
 - It listed **gaps** with severity, why they matter, and suggested fixes.
+- `gap` ran detected test/build commands by default; use `--fast` only when
+  you intentionally want a static scan.
 - It evaluated **trust** of your repo (it would block untrusted scripts).
 - It loaded any historical **QA cases**.
 - A safe **rule-based iteration** scaffolded missing files (README, .env.example, tests/smoke, CI).

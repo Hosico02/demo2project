@@ -30,7 +30,7 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
       enabled: opts.enabled ?? process.env.DEMO2PROJECT_MINIMAX === '1',
       apiKey: opts.apiKey ?? process.env.MINIMAX_API_KEY ?? process.env.DEMO2PROJECT_MINIMAX_API_KEY,
       baseUrl: trimTrailingSlash(opts.baseUrl ?? process.env.MINIMAX_BASE_URL ?? 'https://api.minimaxi.com/v1'),
-      timeoutMs: opts.timeoutMs ?? 300_000,
+      timeoutMs: opts.timeoutMs ?? parsePositiveInt(process.env.MINIMAX_ADVISORY_TIMEOUT_MS ?? process.env.MINIMAX_TIMEOUT_MS ?? process.env.DEMO2PROJECT_MINIMAX_TIMEOUT_MS) ?? 300_000,
       fetchImpl: fetchImpl as typeof fetch,
     };
   }
@@ -51,17 +51,17 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     try {
       const messages = buildMessages(request);
       let response = await this.invoke(messages, controller.signal);
-      if ('error' in response) return this.emptyReport(request, [response.error]);
+      if ('error' in response) return this.fallbackOrEmptyReport(request, [response.error]);
       let content = extractAssistantText(response.json);
       let parsed = parseJsonObject(content);
       if (!parsed) {
         response = await this.invoke(buildRepairMessages(messages, content), controller.signal);
-        if ('error' in response) return this.emptyReport(request, [response.error]);
+        if ('error' in response) return this.fallbackOrEmptyReport(request, [response.error]);
         content = extractAssistantText(response.json);
         parsed = parseJsonObject(content);
       }
       if (!parsed) {
-        return this.emptyReport(request, ['MiniMax advisory output was not parseable JSON']);
+        return this.fallbackOrEmptyReport(request, ['MiniMax advisory output was not parseable JSON']);
       }
       return normalizeAdvisoryReport(parsed, {
         role: request.role,
@@ -70,7 +70,7 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return this.emptyReport(request, [`MiniMax advisory error: ${message}`]);
+      return this.fallbackOrEmptyReport(request, [`MiniMax advisory error: ${message}`]);
     } finally {
       clearTimeout(timer);
     }
@@ -90,6 +90,7 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
         model: this.model,
         temperature: 0.2,
         max_tokens: 4096,
+        reasoning_split: true,
         messages,
       }),
       signal,
@@ -111,6 +112,11 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
       },
       { role: request.role, provider: this.name, model: this.model },
     );
+  }
+
+  private fallbackOrEmptyReport(request: AdvisoryRequest, risks: string[]): AdvisoryReport {
+    return marketResearchFallbackReport(request, this.name, this.model, risks) ??
+      this.emptyReport(request, risks);
   }
 }
 
@@ -213,24 +219,130 @@ function extractAssistantText(json: unknown): string {
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = stripCodeFence(text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim());
+  const whole = tryParseJsonObject(trimmed);
+  if (whole) return whole;
   try {
-    const parsed = JSON.parse(trimmed);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
     const start = trimmed.indexOf('{');
     const end = trimmed.lastIndexOf('}');
     if (start === -1 || end <= start) return null;
+    return tryParseJsonObject(trimmed.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function tryParseJsonObject(candidate: string): Record<string, unknown> | null {
+  for (const text of [candidate, repairCommonJsonDrift(candidate)]) {
     try {
-      const parsed = JSON.parse(trimmed.slice(start, end + 1));
+      const parsed = JSON.parse(text);
       return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
         ? parsed as Record<string, unknown>
         : null;
-    } catch {
-      return null;
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+function repairCommonJsonDrift(candidate: string): string {
+  return candidate.replace(/([{\[,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*"\s*:)/g, '$1"$2$3');
+}
+
+function marketResearchFallbackReport(
+  request: AdvisoryRequest,
+  provider: string,
+  model: string,
+  risks: string[],
+): AdvisoryReport | null {
+  const research = request.marketResearch;
+  const capabilities = research?.capabilities
+    .filter((capability) => capability.importance !== 'out_of_scope' && capability.source_urls.length > 0)
+    .slice(0, 2) ?? [];
+  if (capabilities.length === 0) return null;
+  return normalizeAdvisoryReport({
+    role: request.role,
+    provider,
+    model,
+    raw_summary: `Fallback advisory derived from source-backed ${research?.domain ?? 'market'} research after MiniMax did not return usable guidance.`,
+    risks: [...risks, 'fallback_market_research_advisory_used'],
+    findings: capabilities.map((capability) => {
+      const expectedFiles = fallbackExpectedFiles(request, capability.id);
+      return {
+        category: `market_capability_gap_${capability.id}`,
+        severity: capability.importance === 'required' ? 'high' : 'medium',
+        message: `Missing mature-product capability: ${capability.label}`,
+        why_it_matters: capability.description,
+        suggested_fix: `Implement the project-specific equivalent of ${capability.label} without copying competitor text, code, layouts, names, or assets.`,
+        related_files: expectedFiles,
+        confidence: research?.confidence === 'low' ? 'medium' : (research?.confidence ?? 'medium'),
+        source_urls: capability.source_urls,
+        evidence: capability.local_evidence_patterns.length > 0
+          ? capability.local_evidence_patterns.map((pattern) => `local evidence pattern: ${pattern}`)
+          : [`market research capability: ${capability.description}`],
+      };
+    }),
+    task_proposals: capabilities.map((capability) => {
+      const expectedFiles = fallbackExpectedFiles(request, capability.id);
+      const verificationCommands = fallbackVerificationCommands(request, capability.id);
+      return {
+        title: `Close market capability gap: ${capability.label}`,
+        description: [
+          `Source-backed market research for ${research?.domain ?? 'this product'} identified this mature-product capability: ${capability.description}`,
+          'Implement the equivalent behavior for this project and verify it locally; do not copy competitor expression or assets.',
+        ].join(' '),
+        acceptance_criteria: [
+          `${capability.label} exists as project-specific behavior, not only documentation`,
+          'local verification command passes',
+          'README or product docs describe how to use and verify the behavior',
+        ],
+        expected_changed_files: expectedFiles,
+        verification_commands: verificationCommands,
+        priority: capability.importance === 'required' ? 'high' : 'medium',
+        confidence: research?.confidence === 'low' ? 'medium' : (research?.confidence ?? 'medium'),
+        source_urls: capability.source_urls,
+      };
+    }),
+  }, { role: request.role, provider, model });
+}
+
+function fallbackVerificationCommands(request: AdvisoryRequest, capabilityId?: string): string[] {
+  if (isPythonProject(request)) {
+    if (capabilityId === 'agent_model_configuration') return ['python3 -m pytest tests/test_llm_config.py -q'];
+    if (capabilityId === 'simulation_replay_observability' || capabilityId === 'evaluation_harness') {
+      return ['python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q'];
+    }
+    if (capabilityId === 'deterministic_rules_and_guardrails') return ['python3 -m pytest -q'];
+  }
+  const first = request.snapshot.test_commands[0] ?? request.snapshot.build_commands[0];
+  if (first) return [first];
+  if (isPythonProject(request)) {
+    return ['python3 -m pytest -q'];
+  }
+  if (request.snapshot.detected_language === 'javascript' || request.snapshot.package_manager === 'npm') {
+    return ['npm test'];
+  }
+  return ['test -f README.md'];
+}
+
+function fallbackExpectedFiles(request: AdvisoryRequest, capabilityId?: string): string[] {
+  if (isPythonProject(request)) {
+    if (capabilityId === 'agent_model_configuration') {
+      return ['llm_config.py', 'tests/test_llm_config.py', 'app.py', 'player.py', 'game.py', 'templates/index.html'];
+    }
+    if (capabilityId === 'simulation_replay_observability' || capabilityId === 'evaluation_harness') {
+      return ['evaluation.py', 'replay.py', 'tests/test_eval_harness.py', 'tests/test_replay.py', 'docs/agent-evaluation.md', 'README.md', 'package.json'];
+    }
+    if (capabilityId === 'deterministic_rules_and_guardrails') {
+      return ['rules.py', 'tests/test_rules.py', 'docs/game-design.md', 'game.py'];
     }
   }
+  const files = request.snapshot.important_files
+    .filter((file) => !file.startsWith('.demo2project/'))
+    .slice(0, 3);
+  return files.length > 0 ? files : ['README.md'];
+}
+
+function isPythonProject(request: AdvisoryRequest): boolean {
+  return request.snapshot.detected_language === 'python' || request.snapshot.package_manager === 'pip';
 }
 
 function stripCodeFence(text: string): string {
@@ -240,6 +352,12 @@ function stripCodeFence(text: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function truncate(text: string, max: number): string {

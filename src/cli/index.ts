@@ -130,7 +130,8 @@ Core (read-only or low-risk):
   init                                           Bootstrap config files
   doctor                                         Environment + config diagnose
   analyze     --project <path>                   ProjectSnapshot + ProjectScore
-  gap         --project <path>                   GapReport
+  gap         --project <path> [--fast|--no-verify]
+                                                 GapReport; runs evidence verification by default
   qa:preflight --project <path>                  Load QA cases
   qa:regression --project <path>                 Run regression spec
   self-check                                     Run analyze/gap/regression + Phase 6/7/8 probes

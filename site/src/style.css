@@ -204,20 +204,25 @@ input:focus-visible,
   line-height: 0.9;
 }
 
-.hero-title__name--cn {
-  font-size: clamp(2.8rem, 8vw, 6rem);
+.hero-icon {
+  display: block;
+  width: clamp(180px, 22vw, 280px);
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .title-layer--en {
   z-index: 1;
-  -webkit-mask-image: radial-gradient(circle 84px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), transparent 0 83px, #000 84px);
-  mask-image: radial-gradient(circle 84px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), transparent 0 83px, #000 84px);
+  -webkit-mask-image: radial-gradient(circle 140px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), transparent 0 139px, #000 140px);
+  mask-image: radial-gradient(circle 140px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), transparent 0 139px, #000 140px);
 }
 
 .title-layer--cn {
   z-index: 2;
-  -webkit-mask-image: radial-gradient(circle 84px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), #000 0 83px, transparent 84px);
-  mask-image: radial-gradient(circle 84px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), #000 0 83px, transparent 84px);
+  -webkit-mask-image: radial-gradient(circle 140px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), #000 0 139px, transparent 140px);
+  mask-image: radial-gradient(circle 140px at var(--mask-x, var(--cursor-x)) var(--mask-y, var(--cursor-y)), #000 0 139px, transparent 140px);
 }
 
 .subcopy,

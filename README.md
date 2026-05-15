@@ -22,7 +22,8 @@ Then on your real project:
 pnpm matrixomnix analyze --project /path/to/your/repo
 pnpm matrixomnix research --project /path/to/your/repo --domain web_ui_app --web
 pnpm matrixomnix models:refresh --project /path/to/your/repo --web
-pnpm matrixomnix gap --project /path/to/your/repo
+pnpm matrixomnix gap --project /path/to/your/repo           # runs evidence verification by default
+pnpm matrixomnix gap --project /path/to/your/repo --fast    # static scan only
 pnpm matrixomnix trust:check --project /path/to/your/repo
 pnpm matrixomnix iterate --project /path/to/your/repo --provider rule-based --max-iterations 1 --web
 pnpm matrixomnix iterate --project /path/to/your/repo --provider minimax --max-iterations 1 --web --advisory-agents
@@ -72,6 +73,9 @@ documentation, QA memory and repeatable verification reports.
 The current system is intentionally strict about evidence:
 
 - `analyze` and `gap` separate project structure from real product readiness.
+- `gap` now runs evidence-weighted verification by default, so a project with
+  red tests or build failures is capped even when its files look complete. Use
+  `--fast` or `--no-verify` only when you explicitly want a static scan.
 - `research --web` records source-cited competitor capabilities under
   `.demo2project/research`.
 - `iterate --web --advisory-agents` runs controlled market research, then
@@ -316,7 +320,7 @@ CLI usage (after build):
 
 ```bash
 pnpm matrixomnix analyze --project ./werewolf-demo --evidence --verify
-pnpm matrixomnix gap --project ./werewolf-demo --evidence --verify
+pnpm matrixomnix gap --project ./werewolf-demo
 pnpm matrixomnix long-run --project ./werewolf-demo --provider minimax-m27 --hours 10 --in-place --output reports/long-run/werewolf.json
 ```
 
@@ -413,14 +417,13 @@ their claims are only accepted after local verification and scoring.
 - The MatrixOmnix web Service page is a beta usage guide. Hosted file intake,
   queued processing and artifact packaging are deferred until the productization
   pipeline has stronger production guarantees.
-- A live MiniMax-M2.7-highspeed run on a restored `werewolf-demo` improved the
-  loop behavior but did not reach product readiness: MatrixOmnix correctly
-  identified the `agent_social_deduction_theater` domain, refreshed model
-  catalog/research artifacts, repaired a project-wide Python 3.9 compatibility
-  failure across multiple files, and got the generated smoke suite to
-  `16 passed, 1 skipped`. The run still ended at `50/100 working_demo` because
-  the generated API contract harness was incomplete. That is tracked as a real
-  remaining productization gap, not a success claim.
+- A live MiniMax-M2.7-highspeed run on a restored `werewolf-demo` exposed and
+  then repaired two important gate failures: a Flask Dockerfile that existed
+  but still launched `python app.py`, and stale API tests that supplied a
+  player key while asserting `missing_api_key`. The final evidence run reached
+  `97/100 production_ready_baseline`, `product_maturity market_ready`, and
+  `33 passed`, but this remains a productization baseline rather than a claim
+  that no human release review is needed.
 
 ---
 

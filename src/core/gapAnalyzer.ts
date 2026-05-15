@@ -308,6 +308,7 @@ export async function analyzeGaps(
   const llmConfigText = (await readTextSafe(path.join(snapshot.project_path, 'llm_config.py'))) ?? '';
   const pyprojectText = (await readTextSafe(path.join(snapshot.project_path, 'pyproject.toml'))) ?? '';
   const constraintsText = (await readTextSafe(path.join(snapshot.project_path, 'constraints.txt'))) ?? '';
+  const dockerfileText = (await readTextSafe(path.join(snapshot.project_path, 'Dockerfile'))) ?? '';
   if (isApiBearingProject(snapshot, files, pkg, projectSurfaceText) && !hasApiContractHarness(files, scripts)) {
     findings.push(
       finding(
@@ -616,6 +617,18 @@ export async function analyzeGaps(
           'A Dockerfile makes the demo reproducible on common hosting platforms.',
           'Add a Python Dockerfile with a /healthz health check.',
           ['Dockerfile'],
+        ),
+      );
+    }
+    if (has('Dockerfile') && dockerfileUsesFlaskDevServer(dockerfileText) && !dockerfileUsesProductionPythonServer(dockerfileText)) {
+      findings.push(
+        finding(
+          'flask_docker_uses_dev_server',
+          'high',
+          'Dockerfile starts Flask with a development server',
+          'A production Docker image should not start a public Flask app with python app.py or flask run.',
+          'Run the container with gunicorn, wsgi.py and a health check instead of the Flask development server.',
+          ['Dockerfile', 'wsgi.py', 'requirements.txt'],
         ),
       );
     }
@@ -2300,6 +2313,7 @@ async function assessAgentSocialDeductionTheaterMaturity(
   root: string,
   files: string[],
 ): Promise<ProductMaturityAssessment> {
+  const dockerfileText = ((await readTextSafe(path.join(root, 'Dockerfile'))) ?? '').toLowerCase();
   const implementationFiles = files.filter((f) =>
     /^(app|game|rules|player|prompts|config|llm_config|wsgi|main|diag)\.py$/.test(f) ||
     /^(replay|evaluation|evaluations|observability|metrics|storage|history)\.py$/.test(f) ||
@@ -2325,7 +2339,7 @@ async function assessAgentSocialDeductionTheaterMaturity(
       'agent_model_configuration',
       'Per-session agent model and provider configuration',
       hasText(/public_provider_config|provider.*model|model.*provider|api_key|base_url|openai[-_ ]compatible/) &&
-        hasText(/request\.json|session|game_config|player.*config|per[-_ ]session/),
+        hasText(/request\.(json|get_json)|requires_player_key|llm_provider|llm_api_key|session|game_config|player.*config|per[-_ ]session/),
       ['llm_config.py', 'app.py', 'templates/index.html'],
     ),
     capability(
@@ -2380,6 +2394,7 @@ async function assessAgentSocialDeductionTheaterMaturity(
       'deployable_runtime_baseline',
       'Deployable runtime with CI hooks',
       hasFile(/^dockerfile$/i) &&
+        dockerfileUsesProductionPythonServer(dockerfileText) &&
         (hasFile(/^wsgi\.py$/) || hasText(/gunicorn|wsgi/)) &&
         (hasFile(/(^|\/)\.github\/workflows\//) || hasFile(/^pyproject\.toml$/)) &&
         hasTests,
@@ -2403,6 +2418,20 @@ async function assessAgentSocialDeductionTheaterMaturity(
       'Agent-facing parity: repeatable simulation/evaluation harnesses instead of human matchmaking-first features',
     ],
   };
+}
+
+function dockerfileUsesProductionPythonServer(text: string): boolean {
+  const normalized = text.toLowerCase();
+  if (!normalized.trim()) return false;
+  return /\b(gunicorn|uwsgi|waitress)\b/.test(normalized) && /\b(wsgi:app|app:app|application)\b/.test(normalized);
+}
+
+function dockerfileUsesFlaskDevServer(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return /\bflask\s+run\b/.test(normalized) ||
+    /\bpython3?\s+app\.py\b/.test(normalized) ||
+    /cmd\s+\[\s*["']python(?:3)?["']\s*,\s*["']app\.py["']\s*\]/.test(normalized) ||
+    /entrypoint\s+\[\s*["']python(?:3)?["']\s*,\s*["']app\.py["']\s*\]/.test(normalized);
 }
 
 interface SocialDeductionRuntimeIntegrationAssessment {

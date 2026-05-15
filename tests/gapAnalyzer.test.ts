@@ -618,6 +618,31 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('missing_config_guard');
   });
 
+  it('flags Flask Dockerfiles that still start the development server', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-docker-dev-cmd-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Flask Demo\n\nDocker gunicorn healthz deployment notes.\n' + 'x'.repeat(260));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'app = Flask(__name__)',
+      '@app.route("/healthz")',
+      'def healthz():',
+      '    return jsonify({"status": "ok"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0,<4.0.0\npytest>=8.0.0,<9.0.0\ngunicorn>=22.0.0,<23.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'flask>=3.0.0,<4.0.0\npytest>=8.0.0,<9.0.0\ngunicorn>=22.0.0,<23.0.0\n');
+    await fs.writeFile(path.join(dir, 'pyproject.toml'), '[project]\nname = "flask-demo"\n');
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nCMD ["python", "app.py"]\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), 'def test_health_contract():\n    assert True\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('flask_docker_uses_dev_server');
+  });
+
   it('does not apply game start-route hardening gaps to generic Flask chat APIs', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-chat-no-start-gap-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -1254,6 +1279,43 @@ describe('gapAnalyzer', () => {
     expect(categories).not.toContain('below_social_deduction_market_parity');
     expect(gap.product_maturity?.missing_capabilities).not.toContain('Account identity and player profiles');
     expect(gap.score.score_gate?.failures.some((f) => f.reason.includes('agent_social_deduction_theater'))).toBe(true);
+  });
+
+  it('counts player-supplied provider config evidence toward agent-facing maturity', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-agent-werewolf-player-config-maturity-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# 狼人杀 Multi-Agent Theater\n\nLLM agents play werewolf with per-session provider configuration for observer-facing simulations.\n' + 'x'.repeat(320));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\nopenai>=1.0.0\n');
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'PROVIDER_PRESETS = {"deepseek": {"default_model": "deepseek-chat", "models": ["deepseek-chat"], "base_url": "https://api.deepseek.com"}}',
+      'def public_provider_config(): return {"providers": [], "requires_player_key": True}',
+      'def resolve_llm_config(payload):',
+      '    return {"provider": payload.get("llm_provider"), "model": payload.get("llm_model"), "api_key": payload.get("llm_api_key"), "base_url": payload.get("base_url")}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, request, jsonify',
+      'from llm_config import public_provider_config, resolve_llm_config',
+      'app = Flask(__name__)',
+      '@app.route("/config")',
+      'def config(): return jsonify(public_provider_config())',
+      '@app.route("/start", methods=["POST"])',
+      'def start():',
+      '    player_config = resolve_llm_config(request.get_json(silent=True) or {})',
+      '    return jsonify({"game_config": player_config})',
+      '@app.route("/stream/<gid>")',
+      'def stream(gid): return "SSE observer timeline"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'game.py'), 'GAME_MODES = {"m6": {"roles": ["werewolf", "seer", "villager"]}}\nclass GameMaster:\n    def winner(self):\n        return "werewolf"  # night day vote win condition\n');
+    await fs.writeFile(path.join(dir, 'player.py'), 'from openai import OpenAI\nclass Player:\n    def speak(self):\n        return "LLM agent model provider call"\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), 'def build_system_prompt(): return "role secrecy guardrail invalid action"\n');
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<script>fetch("/start", {body: JSON.stringify({llm_provider:"deepseek", llm_model:"deepseek-chat", llm_api_key:"sk"})}); new EventSource("/stream/demo");</script>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+
+    expect(gap.product_maturity?.domain).toBe('agent_social_deduction_theater');
+    expect(gap.product_maturity?.missing_capabilities).not.toContain('Per-session agent model and provider configuration');
   });
 
   it('does not count isolated social deduction product backbone modules as market ready', async () => {

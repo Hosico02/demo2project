@@ -18,7 +18,7 @@ documents every command grouped by intent.
 | Command | Purpose |
 |---|---|
 | `analyze --project <path>` | ProjectSnapshot + ProjectScore |
-| `gap --project <path>` | GapReport |
+| `gap --project <path> [--fast|--no-verify]` | GapReport. By default this runs evidence verification and executes detected test/build commands; use `--fast` for a static scan or `--no-verify` to keep evidence scoring without command execution. |
 | `plan --project <path>` | IterationPlan (no writes) |
 | `iterate --project <path> [--web] [--advisory-agents]` | Iteration round. With `--web`, MatrixOmnix refreshes the official LLM model catalog before planning when an LLM/provider surface is detected, so provider/model selector repairs can use current source-cited model choices without researching unrelated projects. With `--advisory-agents`, MatrixOmnix also runs controlled market research plus model-backed advisory critics before planning and can reserve a task slot for high-confidence, source-backed proposals. |
 | `self-check` | Run analyze/gap/regression + probes |

@@ -6,6 +6,7 @@ import type { AgentProvider, AgentContext } from './AgentProvider.js';
 import { runCommand } from '../../core/commandRunner.js';
 import { summarizeOutput } from '../../core/redaction.js';
 import { safeStringify } from '../../utils/json.js';
+import { RuleBasedExecutor } from './RuleBasedExecutor.js';
 
 export interface MiniMaxProviderOptions {
   enabled?: boolean;
@@ -62,7 +63,7 @@ export class MiniMaxProvider implements AgentProvider {
       apiKey: opts.apiKey ?? process.env.MINIMAX_API_KEY ?? process.env.DEMO2PROJECT_MINIMAX_API_KEY,
       baseUrl: trimTrailingSlash(opts.baseUrl ?? process.env.MINIMAX_BASE_URL ?? 'https://api.minimaxi.com/v1'),
       model: opts.model ?? process.env.MINIMAX_MODEL ?? 'MiniMax-M2.7-highspeed',
-      timeoutMs: opts.timeoutMs ?? 300_000,
+      timeoutMs: opts.timeoutMs ?? parsePositiveInt(process.env.MINIMAX_TIMEOUT_MS ?? process.env.DEMO2PROJECT_MINIMAX_TIMEOUT_MS) ?? 300_000,
       fetchImpl: fetchImpl as typeof fetch,
     };
   }
@@ -96,10 +97,18 @@ export class MiniMaxProvider implements AgentProvider {
       };
     }
 
+    const deterministicFirstReason = deterministicFirstTaskReason(task, ctx);
+    if (deterministicFirstReason) {
+      const fallback = await runDeterministicFallback(task, ctx, deterministicFirstReason);
+      if (fallback) return fallback;
+    }
+
     const preFiles = await fsFingerprint(ctx.project_path);
     const messages = await buildMessages(task, ctx.project_path, ctx.recent_events);
     let api = await invokeMiniMax(messages, this.opts);
     if (api.error) {
+      const fallback = await runDeterministicFallback(task, ctx, `minimax_api_error:${api.error}`);
+      if (fallback) return fallback;
       return {
         ...base,
         status: 'failed',
@@ -115,6 +124,8 @@ export class MiniMaxProvider implements AgentProvider {
       usedOutputRepairRetry = true;
       api = await invokeMiniMax(buildOutputRepairMessages(messages, assistantText), this.opts);
       if (api.error) {
+        const fallback = await runDeterministicFallback(task, ctx, `minimax_repair_api_error:${api.error}`);
+        if (fallback) return fallback;
         return {
           ...base,
           status: 'failed',
@@ -128,6 +139,8 @@ export class MiniMaxProvider implements AgentProvider {
       parsed = parseMiniMaxJson(assistantText);
     }
     if (!parsed) {
+      const fallback = await runDeterministicFallback(task, ctx, 'provider_output_unparseable');
+      if (fallback) return fallback;
       return {
         ...base,
         status: 'failed',
@@ -139,16 +152,24 @@ export class MiniMaxProvider implements AgentProvider {
     }
 
     let edits = normalizeEdits(parsed);
+    let usedPythonCompatibilityCompletion = false;
+    const pythonCompleted = await completePythonCompatibilityEdits(ctx.project_path, edits, ctx.recent_events);
+    edits = pythonCompleted.edits;
+    usedPythonCompatibilityCompletion = pythonCompleted.completed;
     let usedUnsafeEditRepairRetry = false;
-    let unsafeEditReason = unsafeVerificationRepairEditReason(task, edits);
+    let usedUnsafeEditOutputRepairRetry = false;
+    let unsafeEditReason = await providerEditSafetyReason(ctx.project_path, task, edits, ctx.recent_events);
     if (unsafeEditReason) {
       usedUnsafeEditRepairRetry = true;
-      api = await invokeMiniMax(buildUnsafeEditRepairMessages(messages, assistantText, unsafeEditReason), this.opts);
+      const unsafeRepairMessages = buildUnsafeEditRepairMessages(messages, assistantText, unsafeEditReason);
+      api = await invokeMiniMax(unsafeRepairMessages, this.opts);
       if (api.error) {
+        const fallback = await runDeterministicFallback(task, ctx, `minimax_unsafe_edit_repair_api_error:${api.error}`);
+        if (fallback) return fallback;
         return {
           ...base,
           status: 'failed',
-          summary: `MiniMax returned unsafe verification-repair edits and repair retry failed: ${api.error}`,
+          summary: `MiniMax returned unsafe or incomplete edits and repair retry failed: ${api.error}`,
           unable_to_verify_reason: 'unsafe_provider_edit',
           failures: ['unsafe_provider_edit', `minimax_unsafe_edit_repair_api_error:${api.error}`],
           risks: [unsafeEditReason],
@@ -157,22 +178,47 @@ export class MiniMaxProvider implements AgentProvider {
       assistantText = extractAssistantText(api.json);
       parsed = parseMiniMaxJson(assistantText);
       if (!parsed) {
+        usedUnsafeEditOutputRepairRetry = true;
+        api = await invokeMiniMax(buildOutputRepairMessages(unsafeRepairMessages, assistantText), this.opts);
+        if (api.error) {
+          const fallback = await runDeterministicFallback(task, ctx, `minimax_unsafe_edit_output_repair_api_error:${api.error}`);
+          if (fallback) return fallback;
+          return {
+            ...base,
+            status: 'failed',
+            summary: `MiniMax unsafe-edit repair response was unparseable and JSON repair retry failed: ${api.error}`,
+            unable_to_verify_reason: 'provider_output_unparseable',
+            failures: ['unsafe_provider_edit', 'provider_output_unparseable', `minimax_unsafe_edit_output_repair_api_error:${api.error}`],
+            risks: [unsafeEditReason, summarizeOutput(assistantText, 20, 2000)],
+          };
+        }
+        assistantText = extractAssistantText(api.json);
+        parsed = parseMiniMaxJson(assistantText);
+      }
+      if (!parsed) {
+        const fallback = await runDeterministicFallback(task, ctx, 'provider_unsafe_edit_output_unparseable');
+        if (fallback) return fallback;
         return {
           ...base,
           status: 'failed',
           summary: 'MiniMax unsafe-edit repair response did not contain parseable JSON',
           unable_to_verify_reason: 'provider_output_unparseable',
           failures: ['unsafe_provider_edit', 'provider_output_unparseable'],
-          risks: [unsafeEditReason, summarizeOutput(assistantText, 20, 2000)],
+          risks: [unsafeEditReason, 'provider_unsafe_edit_output_repair_retry_used', summarizeOutput(assistantText, 20, 2000)],
         };
       }
       edits = normalizeEdits(parsed);
-      unsafeEditReason = unsafeVerificationRepairEditReason(task, edits);
+      const repairedPythonCompleted = await completePythonCompatibilityEdits(ctx.project_path, edits, ctx.recent_events);
+      edits = repairedPythonCompleted.edits;
+      usedPythonCompatibilityCompletion = usedPythonCompatibilityCompletion || repairedPythonCompleted.completed;
+      unsafeEditReason = await providerEditSafetyReason(ctx.project_path, task, edits, ctx.recent_events);
       if (unsafeEditReason) {
+        const fallback = await runDeterministicFallback(task, ctx, `unsafe_provider_edit:${unsafeEditReason}`);
+        if (fallback) return fallback;
         return {
           ...base,
           status: 'failed',
-          summary: 'MiniMax verification-repair edits were unsafe to apply',
+          summary: 'MiniMax edits were unsafe or incomplete to apply',
           unable_to_verify_reason: 'unsafe_provider_edit',
           failures: ['unsafe_provider_edit'],
           risks: [unsafeEditReason],
@@ -187,7 +233,7 @@ export class MiniMaxProvider implements AgentProvider {
         summary: parsed.summary ?? 'MiniMax returned no edits',
         changed_files: normalizeStringArray(parsed.changed_files),
         unable_to_verify_reason: 'provider_returned_no_edits',
-        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
+        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry, usedUnsafeEditOutputRepairRetry, usedPythonCompatibilityCompletion),
         next_steps: normalizeStringArray(parsed.next_steps),
       };
     }
@@ -199,7 +245,7 @@ export class MiniMaxProvider implements AgentProvider {
         status: 'failed',
         summary: parsed.summary ?? 'MiniMax returned edits, but they were not safe to apply',
         failures: applyFailures,
-        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
+        risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry, usedUnsafeEditOutputRepairRetry, usedPythonCompatibilityCompletion),
         next_steps: normalizeStringArray(parsed.next_steps),
       };
     }
@@ -223,7 +269,7 @@ export class MiniMaxProvider implements AgentProvider {
       verification_evidence: evidence,
       unable_to_verify_reason: evidence.length === 0 ? 'no_verification_commands_for_task' : undefined,
       failures: evidence.filter((e) => !e.passed).map((e) => `${e.command} → ${e.failure_reason ?? 'failed'}`),
-      risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry),
+      risks: withRetryRisk(normalizeStringArray(parsed.risks), usedOutputRepairRetry, usedUnsafeEditRepairRetry, usedUnsafeEditOutputRepairRetry, usedPythonCompatibilityCompletion),
       next_steps: normalizeStringArray(parsed.next_steps),
     };
   }
@@ -244,6 +290,70 @@ function baseResult(task: AgentTask): AgentResult {
   };
 }
 
+async function runDeterministicFallback(
+  task: AgentTask,
+  ctx: AgentContext,
+  reason: string,
+): Promise<AgentResult | null> {
+  const result = await new RuleBasedExecutor().runTask(task, ctx);
+  if (result.status === 'skipped' && result.unable_to_verify_reason === 'no_rule_for_task') return null;
+  return {
+    ...result,
+    summary: `MiniMax deterministic fallback after ${reason}: ${result.summary}`,
+    risks: [...result.risks, 'minimax_deterministic_fallback_used', reason],
+  };
+}
+
+function deterministicFirstTaskReason(task: AgentTask, ctx: AgentContext): string | null {
+  if (/add player-supplied llm provider configuration|repair llm provider select option labels|expand player-selectable llm provider catalog/i.test(task.title)) {
+    return 'deterministic_first_known_llm_provider_config_task';
+  }
+  const isRepair = /repair failing project verification|repair failed verification/i.test(task.title);
+  const plannedText = `${task.title}\n${task.description}\n${task.expected_changed_files.join('\n')}\n${task.verification_commands.join('\n')}`;
+  const acceptanceText = task.acceptance_criteria.join('\n');
+  if (
+    !isRepair &&
+    (
+      (/^add python smoke tests$/i.test(task.title) && /python source files compile/i.test(acceptanceText)) ||
+      (/^add pytest-compatible verification$/i.test(task.title) && /pytest-compatible tests exist/i.test(acceptanceText)) ||
+      isMechanicalContractHarnessTask(task.title) ||
+      isKnownRuleBasedProductTask(task.title)
+    )
+  ) {
+    if (isMechanicalContractHarnessTask(task.title)) {
+      return 'deterministic_first_mechanical_contract_harness';
+    }
+    if (isKnownRuleBasedProductTask(task.title)) {
+      return 'deterministic_first_known_rule_based_product_task';
+    }
+    return 'deterministic_first_mechanical_python_smoke_harness';
+  }
+  if (!isRepair) return null;
+  const recent = ctx.recent_events
+    .slice(-8)
+    .map((event) => `${event.message}\n${event.raw_output ?? ''}`)
+    .join('\n');
+  const text = `${plannedText}\n${recent}`;
+  if (
+    /tests\/test_llm_config\.py|llm_config\.py|redact_key|redacted?_config|PROVIDER_PRESETS|public_provider_config|validate_llm_config|resolve_llm_config|api_key_required|missing_api_key/i.test(text)
+  ) {
+    return 'deterministic_first_known_llm_config_repair';
+  }
+  if (/api[- ]contract|api-contract-check\.mjs/i.test(text)) {
+    return 'deterministic_first_known_api_contract_repair';
+  }
+  return null;
+}
+
+function isMechanicalContractHarnessTask(title: string): boolean {
+  return /^(add cli executable contract harness|add api contract harness|add config contract harness|add data migration contract harness|add worker contract harness|add demo surface contract matrix|add browser extension contract harness|add notebook reproducibility contract harness|add mobile app contract harness|add desktop app contract harness|add game runtime contract harness|add 3d scene contract harness|add ml model contract harness|add media pipeline contract harness)$/i.test(title.trim());
+}
+
+function isKnownRuleBasedProductTask(title: string): boolean {
+  return /^(implement product core spine|add product runtime entry|add python dependency constraints|add flask health and config guard|add flask api tests|add flask regression tests|add operational documentation|add minimal pyproject\.toml|add minimal ci workflow|update ci workflow for project stack|add flask deployment scaffold|document public demo deployment|harden flask public runtime controls|add social deduction rules engine|integrate social product backbone into app workflows|harden agent-facing werewolf product loop)$/i.test(title.trim()) ||
+    /^close market capability gap:\s*(agent model and provider configuration|simulation replay and observability|agent evaluation harness|deterministic rules and agent guardrails)$/i.test(title.trim());
+}
+
 async function invokeMiniMax(
   messages: Array<{ role: 'system' | 'user'; content: string }>,
   opts: { apiKey?: string; baseUrl: string; model: string; timeoutMs: number; fetchImpl: typeof fetch },
@@ -262,6 +372,7 @@ async function invokeMiniMax(
         messages,
         temperature: 0.1,
         max_tokens: 16384,
+        reasoning_split: true,
       }),
       signal: controller.signal,
     });
@@ -359,18 +470,22 @@ function buildUnsafeEditRepairMessages(
     {
       role: 'system',
       content: [
-        'You repair a previous MiniMax code-edit response that violated verification-repair safety rules.',
+        'You repair a previous MiniMax code-edit response that violated task safety or completeness rules.',
         'Return ONLY one valid JSON object. No markdown, no prose, no comments.',
         'Use this schema exactly: {"summary":"one line","changed_files":["relative/path"],"edits":[{"path":"relative/path","content":"complete new file content","content_base64":"optional base64 utf-8 complete file content"}],"next_steps":[],"risks":[]}',
         'Prefer content_base64 for every edit when repairing invalid JSON caused by file-content escaping.',
         'Do not change tests just to satisfy a failing assertion. Fix source or harness code unless the task explicitly proves a test syntax error.',
+        'For contract harness tasks, return the complete contract doc and executable check script together. Do not add only package scripts.',
+        'For Python smoke tests, do not import side-effectful diagnostic or CLI scripts. Use py_compile/ast.parse for broad file checks and import only credential-free runtime modules or explicitly mocked/env-isolated modules.',
+        'For Python smoke tests, assert only symbols that actually exist in the source. Do not invent exports such as ROLES or PERSONALITIES unless the module already defines them.',
+        'Preserve cross-file Python import contracts. Do not remove functions/classes/constants still imported by other source files unless you update every importer and verification proves the behavior is intact.',
       ].join('\n'),
     },
     {
       role: 'user',
       content: [
         `The previous edit payload was unsafe: ${reason}`,
-        'Return a corrected payload for the same task. The corrected payload must fix the product/source root cause.',
+        'Return a corrected payload for the same task. The corrected payload must satisfy the task contract and fix the product/source root cause.',
         '',
         `Original task prompt:\n${truncate(originalUser, 12_000)}`,
         '',
@@ -558,6 +673,43 @@ function normalizeEdits(payload: MiniMaxJsonPayload): MiniMaxEdit[] {
     }
     return [];
   });
+}
+
+async function completePythonCompatibilityEdits(
+  root: string,
+  edits: MiniMaxEdit[],
+  recentEvents: IterationEvent[],
+): Promise<{ edits: MiniMaxEdit[]; completed: boolean }> {
+  if (!hasProjectWidePythonCompatibilityFailure(recentEvents) || edits.length === 0) {
+    return { edits, completed: false };
+  }
+  const editMap = new Map<string, MiniMaxEdit>();
+  for (const edit of edits) {
+    editMap.set(path.posix.normalize(edit.path.replace(/\\/g, '/')), edit);
+  }
+  let completed = false;
+  for (const rel of await listRootPythonFiles(root)) {
+    const current = editMap.get(rel)?.content ?? await readExistingFile(path.join(root, rel));
+    if (!current) continue;
+    if (/^from __future__ import annotations$/m.test(current) || !needsPythonDeferredAnnotations(current)) continue;
+    editMap.set(rel, { path: rel, content: addFutureAnnotationsImport(current) });
+    completed = true;
+  }
+  return { edits: Array.from(editMap.values()), completed };
+}
+
+function addFutureAnnotationsImport(content: string): string {
+  if (/^from __future__ import annotations$/m.test(content)) return content;
+  const newline = content.includes('\r\n') ? '\r\n' : '\n';
+  const lines = content.split(/\r?\n/);
+  let insertAt = 0;
+  if (lines[insertAt]?.startsWith('#!')) insertAt++;
+  if (/^#.*coding[:=]\s*[-\w.]+/.test(lines[insertAt] ?? '')) insertAt++;
+  while (insertAt < lines.length && (/^\s*$/.test(lines[insertAt] ?? '') || /^\s*#/.test(lines[insertAt] ?? ''))) {
+    insertAt++;
+  }
+  lines.splice(insertAt, 0, 'from __future__ import annotations', '');
+  return lines.join(newline);
 }
 
 function decodeBase64Utf8(value: string): string | null {
@@ -774,6 +926,375 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+async function providerEditSafetyReason(
+  root: string,
+  task: AgentTask,
+  edits: MiniMaxEdit[],
+  recentEvents: IterationEvent[],
+): Promise<string | null> {
+  const pythonExportReason = await pythonExportContractDriftReason(root, edits);
+  const pythonImportReason = await pythonLocalImportContractReason(root, edits);
+  const pythonSmokeReason = await pythonSmokeTestEditReason(root, task, edits);
+  return pythonExportReason ??
+    pythonImportReason ??
+    unsafeVerificationRepairEditReason(task, edits) ??
+    apiContractHarnessEditReason(task, edits) ??
+    pythonSmokeReason ??
+    await incompletePythonCompatibilityRepairReason(root, edits, recentEvents);
+}
+
+async function pythonExportContractDriftReason(root: string, edits: MiniMaxEdit[]): Promise<string | null> {
+  const rootPythonFiles = await listRootPythonFiles(root);
+  if (rootPythonFiles.length === 0) return null;
+  const rootSources = new Map<string, string>();
+  for (const rel of rootPythonFiles) {
+    rootSources.set(rel, await readExistingFile(path.join(root, rel)) ?? '');
+  }
+  for (const edit of edits) {
+    const rel = path.posix.normalize(edit.path.replace(/\\/g, '/'));
+    if (!rel.endsWith('.py') || rel.includes('/')) continue;
+    const before = rootSources.get(rel);
+    if (!before) continue;
+    const beforeExports = collectPythonTopLevelExports(before);
+    if (beforeExports.size === 0) continue;
+    const afterExports = collectPythonTopLevelExports(edit.content);
+    const removed = Array.from(beforeExports).filter((name) => !afterExports.has(name));
+    if (removed.length === 0) continue;
+    const moduleName = rel.replace(/\.py$/, '');
+    const stillImported = new Set<string>();
+    for (const [otherRel, source] of rootSources) {
+      if (otherRel === rel) continue;
+      for (const imported of pythonImportsFromModule(source, moduleName)) {
+        if (removed.includes(imported)) stillImported.add(`${moduleName}.${imported}`);
+      }
+    }
+    if (stillImported.size > 0) {
+      return `edit removed Python exports still imported by other source files (${Array.from(stillImported).join(', ')}); preserve cross-file import contracts or update all importers with verified source-compatible behavior`;
+    }
+  }
+  return null;
+}
+
+function collectPythonTopLevelExports(source: string): Set<string> {
+  const exports = new Set<string>();
+  let match: RegExpExecArray | null;
+  const declaration = /^(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b/gm;
+  while ((match = declaration.exec(source)) !== null) exports.add(match[1]!);
+  const assignment = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=/gm;
+  while ((match = assignment.exec(source)) !== null) exports.add(match[1]!);
+  return exports;
+}
+
+function pythonImportsFromModule(source: string, moduleName: string): string[] {
+  const out: string[] = [];
+  const pattern = new RegExp(`^\\s*from\\s+${escapeRegExp(moduleName)}\\s+import\\s+([^\\n#]+)`, 'gm');
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source)) !== null) {
+    for (const item of match[1]!.split(',')) {
+      const name = item.trim().split(/\s+as\s+/i)[0]?.trim();
+      if (name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) out.push(name);
+    }
+  }
+  return out;
+}
+
+async function pythonLocalImportContractReason(root: string, edits: MiniMaxEdit[]): Promise<string | null> {
+  const rootPythonFiles = await listRootPythonFiles(root);
+  if (rootPythonFiles.length === 0 || !edits.some((edit) => edit.path.endsWith('.py'))) return null;
+  const before = new Map<string, string>();
+  for (const rel of rootPythonFiles) before.set(rel, await readExistingFile(path.join(root, rel)) ?? '');
+  const after = new Map(before);
+  for (const edit of edits) {
+    const rel = path.posix.normalize(edit.path.replace(/\\/g, '/'));
+    if (before.has(rel)) after.set(rel, edit.content);
+  }
+  const modules = new Set(Array.from(after.keys()).map((rel) => rel.replace(/\.py$/, '')));
+  for (const [rel, source] of after) {
+    for (const imported of localPythonImports(source, modules)) {
+      const importedSource = after.get(`${imported.module}.py`);
+      if (!importedSource) continue;
+      for (const name of imported.names) {
+        if (name === '*') continue;
+        if (!pythonSourceExportsName(importedSource, name)) {
+          return `edit imports missing local Python export (${rel} imports ${imported.module}.${name}); inspect actual source exports before changing import contracts`;
+        }
+      }
+    }
+  }
+
+  const beforeCycles = new Set(findPythonImportCycles(buildPythonImportGraph(before, modules)));
+  const afterCycles = findPythonImportCycles(buildPythonImportGraph(after, modules));
+  const newCycles = afterCycles.filter((cycle) => !beforeCycles.has(cycle));
+  if (newCycles.length > 0) {
+    return `edit introduces local Python import cycle (${newCycles[0]}); preserve acyclic module contracts or move shared data to a neutral module`;
+  }
+  return null;
+}
+
+function localPythonImports(source: string, modules: Set<string>): Array<{ module: string; names: string[] }> {
+  const imports: Array<{ module: string; names: string[] }> = [];
+  let match: RegExpExecArray | null;
+  const fromPattern = /^\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\s+([^\n#]+)/gm;
+  while ((match = fromPattern.exec(source)) !== null) {
+    const module = match[1]!;
+    if (!modules.has(module)) continue;
+    const names = match[2]!
+      .split(',')
+      .map((name) => name.trim().split(/\s+as\s+/i)[0]?.trim() ?? '')
+      .filter(Boolean);
+    imports.push({ module, names });
+  }
+  const importPattern = /^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?)*)/gm;
+  while ((match = importPattern.exec(source)) !== null) {
+    for (const rawName of match[1]!.split(',')) {
+      const module = rawName.trim().split(/\s+as\s+/i)[0]?.split('.')[0]?.trim() ?? '';
+      if (modules.has(module)) imports.push({ module, names: [] });
+    }
+  }
+  return imports;
+}
+
+function buildPythonImportGraph(files: Map<string, string>, modules: Set<string>): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>();
+  for (const rel of files.keys()) graph.set(rel.replace(/\.py$/, ''), new Set());
+  for (const [rel, source] of files) {
+    const module = rel.replace(/\.py$/, '');
+    for (const imported of localPythonImports(source, modules)) {
+      graph.get(module)?.add(imported.module);
+    }
+  }
+  return graph;
+}
+
+function findPythonImportCycles(graph: Map<string, Set<string>>): string[] {
+  const cycles = new Set<string>();
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: string[] = [];
+  const visit = (node: string) => {
+    if (visiting.has(node)) {
+      const start = stack.indexOf(node);
+      if (start >= 0) {
+        const cycle = [...stack.slice(start), node];
+        cycles.add(canonicalCycle(cycle));
+      }
+      return;
+    }
+    if (visited.has(node)) return;
+    visiting.add(node);
+    stack.push(node);
+    for (const next of graph.get(node) ?? []) visit(next);
+    stack.pop();
+    visiting.delete(node);
+    visited.add(node);
+  };
+  for (const node of graph.keys()) visit(node);
+  return Array.from(cycles).sort();
+}
+
+function canonicalCycle(cycle: string[]): string {
+  const nodes = cycle.slice(0, -1);
+  if (nodes.length === 0) return cycle.join(' -> ');
+  let best = nodes;
+  for (let index = 1; index < nodes.length; index += 1) {
+    const rotated = [...nodes.slice(index), ...nodes.slice(0, index)];
+    if (rotated.join('\0') < best.join('\0')) best = rotated;
+  }
+  return [...best, best[0]].join(' -> ');
+}
+
+async function pythonSmokeTestEditReason(root: string, task: AgentTask, edits: MiniMaxEdit[]): Promise<string | null> {
+  if (!/add python smoke tests/i.test(task.title)) return null;
+  if (edits.length === 0) return null;
+  const testEdits = edits.filter((edit) => isTestPath(edit.path) && edit.path.endsWith('.py'));
+  if (testEdits.length === 0) return null;
+  for (const edit of testEdits) {
+    const hallucinatedImport = await hallucinatedPythonImportReason(root, edit.content);
+    if (hallucinatedImport) return hallucinatedImport;
+    const riskyImport = await directRiskyPythonImportReason(root, edit.content);
+    if (riskyImport) return riskyImport;
+    const selfSecretScan = pythonSmokeSecretSelfScanReason(edit.content);
+    if (selfSecretScan) return selfSecretScan;
+    const overSpecified = await overSpecifiedPythonSmokeSourceAssertionReason(root, edit.content);
+    if (overSpecified) return overSpecified;
+  }
+  const sideEffectModules = await sideEffectfulRootPythonModules(root);
+  if (sideEffectModules.length === 0) return null;
+  for (const edit of testEdits) {
+    const directSideEffectImport = sideEffectModules.some((moduleName) => {
+      const direct = new RegExp(`^\\s*(?:import\\s+${escapeRegExp(moduleName)}\\b|from\\s+${escapeRegExp(moduleName)}\\s+import\\s+)`, 'm');
+      return direct.test(edit.content);
+    });
+    const importlibSideEffectImport = /importlib\.import_module/.test(edit.content) && sideEffectModules.some((moduleName) => {
+      const quoted = new RegExp(`["']${escapeRegExp(moduleName)}["']`);
+      return quoted.test(edit.content);
+    });
+    const dynamicallyImportsRootModules = /importlib\.import_module/.test(edit.content) &&
+      /glob\s*\([^)]*\*\.py|Path\s*\([^)]*\)\.glob\s*\([^)]*\*\.py|PYTHON_MODULES\s*=/.test(edit.content);
+    if (directSideEffectImport || importlibSideEffectImport || dynamicallyImportsRootModules) {
+      return `Python smoke tests import side-effectful top-level scripts (${sideEffectModules.join(', ')}); use py_compile/ast.parse for broad file checks and import only runtime modules with credentials/network isolated`;
+    }
+  }
+  return null;
+}
+
+async function directRiskyPythonImportReason(root: string, testContent: string): Promise<string | null> {
+  const modules = directRootPythonImports(testContent);
+  if (modules.length === 0) return null;
+  const risky: string[] = [];
+  for (const moduleName of modules) {
+    const source = await readExistingFile(path.join(root, `${moduleName}.py`));
+    if (!source) continue;
+    if (!/^from __future__ import annotations$/m.test(source) && needsPythonDeferredAnnotations(source)) {
+      risky.push(`${moduleName}.py`);
+    }
+  }
+  if (risky.length === 0) return null;
+  return `Python smoke tests directly import modules with runtime-evaluated modern annotations (${risky.join(', ')}); use py_compile/ast.parse for broad smoke checks or add complete compatibility repairs first`;
+}
+
+function directRootPythonImports(testContent: string): string[] {
+  const modules = new Set<string>();
+  let match: RegExpExecArray | null;
+  const importPattern = /^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?)*)/gm;
+  while ((match = importPattern.exec(testContent)) !== null) {
+    for (const rawName of match[1]!.split(',')) {
+      const module = rawName.trim().split(/\s+as\s+/i)[0]?.split('.')[0]?.trim() ?? '';
+      if (module) modules.add(module);
+    }
+  }
+  const fromPattern = /^\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\s+/gm;
+  while ((match = fromPattern.exec(testContent)) !== null) modules.add(match[1]!);
+  return Array.from(modules);
+}
+
+function pythonSmokeSecretSelfScanReason(testContent: string): string | null {
+  const scansTestFiles = /glob\([^)]*tests?|\/tests?|_PY_FILES\s*=/.test(testContent) && /re\.findall|re\.search|re\.compile/.test(testContent);
+  const includesSecretRegexLiteral = /BEGIN (?:RSA |EC |DSA )?PRIVATE KEY|sk-\[|AKIA\[/.test(testContent);
+  if (scansTestFiles && includesSecretRegexLiteral) {
+    return 'Python smoke secret scan includes test files that contain the regex literals themselves; restrict secret scans to product source files or externalize patterns safely';
+  }
+  return null;
+}
+
+async function overSpecifiedPythonSmokeSourceAssertionReason(root: string, testContent: string): Promise<string | null> {
+  if (!/read_text\s*\(|Path\s*\(\s*["'](?:app|game)\.py["']/.test(testContent)) return null;
+  const gameText = await readExistingFile(path.join(root, 'game.py')) ?? '';
+  const appText = await readExistingFile(path.join(root, 'app.py')) ?? '';
+  const hardCodedModes = Array.from(testContent.matchAll(/["']m(\d+)["']/g)).map((match) => `m${match[1]}`);
+  const missingModes = Array.from(new Set(hardCodedModes.filter((mode) => /for\s+mode\s+in|test_five_modes|Missing modes|not found in game\.py/i.test(testContent) && gameText && !gameText.includes(mode))));
+  if (missingModes.length > 0) {
+    return `Python smoke test asserts hard-coded game modes absent from source (${missingModes.join(', ')}); smoke tests must derive contract evidence from actual source or product specs instead of inventing mode ids`;
+  }
+  if (/required_routes|test_required_routes|Route .* not found|f['"]\\?["']\{route\}\\?["']/i.test(testContent)) {
+    const routeLiterals = Array.from(testContent.matchAll(/["'](\/[A-Za-z0-9_<>{}\/:-]*)["']/g)).map((match) => match[1]!);
+    const dynamicRouteMismatch = routeLiterals.some((route) => route !== '/' && !appText.includes(`"${route}"`) && !appText.includes(`'${route}'`) && appText.includes(`${route}/<`));
+    if (dynamicRouteMismatch || routeLiterals.length > 0) {
+      return 'Python smoke test asserts brittle hard-coded route string literals; route checks should parse Flask decorators or use the app route map so dynamic routes like /stream/<game_id> do not fail falsely';
+    }
+  }
+  return null;
+}
+
+async function hallucinatedPythonImportReason(root: string, testContent: string): Promise<string | null> {
+  const missing: string[] = [];
+  const importPattern = /^\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\s+([A-Za-z0-9_, ]+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = importPattern.exec(testContent)) !== null) {
+    const moduleName = match[1]!;
+    const source = await readExistingFile(path.join(root, `${moduleName}.py`));
+    if (!source) continue;
+    const names = match[2]!
+      .split(',')
+      .map((name) => name.trim().split(/\s+as\s+/i)[0]?.trim() ?? '')
+      .filter(Boolean);
+    for (const name of names) {
+      if (!pythonSourceExportsName(source, name)) missing.push(`${moduleName}.${name}`);
+    }
+  }
+  if (missing.length === 0) return null;
+  return `Python smoke tests import non-existent project symbols (${missing.join(', ')}); inspect actual source exports before asserting public names`;
+}
+
+function pythonSourceExportsName(source: string, name: string): boolean {
+  const escaped = escapeRegExp(name);
+  return new RegExp(`^\\s*(?:def|class)\\s+${escaped}\\b`, 'm').test(source) ||
+    new RegExp(`^\\s*${escaped}\\s*(?::[^=]+)?=`, 'm').test(source) ||
+    new RegExp(`^\\s*from\\s+\\S+\\s+import\\s+.*\\b${escaped}\\b`, 'm').test(source);
+}
+
+async function sideEffectfulRootPythonModules(root: string): Promise<string[]> {
+  const modules: string[] = [];
+  for (const rel of await listRootPythonFiles(root)) {
+    const content = await readExistingFile(path.join(root, rel));
+    if (!content) continue;
+    if (hasTopLevelOpenAiClient(content)) modules.push(rel.replace(/\.py$/, ''));
+  }
+  return modules;
+}
+
+function hasTopLevelOpenAiClient(content: string): boolean {
+  if (!/\bfrom\s+openai\s+import\s+OpenAI\b|\bimport\s+openai\b/.test(content)) return false;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*\s*=\s*OpenAI\s*\(/m.test(content)) return false;
+  return true;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function apiContractHarnessEditReason(task: AgentTask, edits: MiniMaxEdit[]): string | null {
+  if (!/add api contract harness/i.test(task.title)) return null;
+  if (edits.length === 0) return null;
+  const changed = new Set(edits.map((edit) => path.posix.normalize(edit.path.replace(/\\/g, '/'))));
+  const required = ['docs/api-contract.md', 'scripts/api-contract-check.mjs'];
+  const missing = required.filter((rel) => !changed.has(rel));
+  if (missing.length > 0) {
+    return `API contract harness omitted required files (${missing.join(', ')}); contract docs and executable check script must be returned with package script changes`;
+  }
+  const script = edits.find((edit) => path.posix.normalize(edit.path.replace(/\\/g, '/')) === 'scripts/api-contract-check.mjs')?.content ?? '';
+  if (/\b__dirname\b/.test(script)) {
+    return 'API contract harness uses __dirname in an ES module .mjs script; use import.meta.url/fileURLToPath or path.resolve instead';
+  }
+  if (isBrittleApiEventLiteralScan(script)) {
+    return 'API contract harness contains brittle exact event-literal scan; use syntax-tolerant route/API/event evidence checks instead of requiring one Python dict formatting style';
+  }
+  return null;
+}
+
+function isBrittleApiEventLiteralScan(script: string): boolean {
+  const hasExactEventLiteral = /\\?"type\\?"\s*:\s*\\?"(?:speech|done|game_start|phase|state|log|vote|death|game_over)\\?"/.test(script);
+  const scansSourceWithIncludes = /emitCalls\s*=|game\.includes\s*\(|\.filter\s*\([^)]*includes\s*\(/.test(script);
+  return hasExactEventLiteral && scansSourceWithIncludes;
+}
+
+async function incompletePythonCompatibilityRepairReason(
+  root: string,
+  edits: MiniMaxEdit[],
+  recentEvents: IterationEvent[],
+): Promise<string | null> {
+  if (!hasProjectWidePythonCompatibilityFailure(recentEvents) || edits.length === 0) return null;
+  const editMap = new Map(
+    edits
+      .map((edit) => [path.posix.normalize(edit.path.replace(/\\/g, '/')), edit.content] as const)
+      .filter(([rel]) => rel.endsWith('.py')),
+  );
+  const riskyFiles: string[] = [];
+  for (const rel of await listRootPythonFiles(root)) {
+    const content = editMap.get(rel) ?? await readExistingFile(path.join(root, rel));
+    if (!content) continue;
+    if (!/^from __future__ import annotations$/m.test(content) && needsPythonDeferredAnnotations(content)) {
+      riskyFiles.push(rel);
+    }
+  }
+  if (riskyFiles.length === 0) return null;
+  return `incomplete project-wide Python compatibility repair; remaining files still use runtime-evaluated modern annotations: ${riskyFiles.join(', ')}`;
+}
+
+function needsPythonDeferredAnnotations(content: string): boolean {
+  return /\|\s*(?:None|[A-Z_a-z])|\b(?:dict|list|tuple|set)\[[^\]]+\]/.test(content);
+}
+
 function unsafeVerificationRepairEditReason(task: AgentTask, edits: MiniMaxEdit[]): string | null {
   if (!/repair (failing project verification|failed verification)/i.test(task.title)) return null;
   if (edits.length === 0) return null;
@@ -800,15 +1321,25 @@ function withRetryRisk(
   risks: string[],
   usedOutputRepairRetry: boolean,
   usedUnsafeEditRepairRetry = false,
+  usedUnsafeEditOutputRepairRetry = false,
+  usedPythonCompatibilityCompletion = false,
 ): string[] {
   const next = [...risks];
   if (usedOutputRepairRetry) next.push('provider_output_repair_retry_used');
   if (usedUnsafeEditRepairRetry) next.push('provider_unsafe_edit_repair_retry_used');
+  if (usedUnsafeEditOutputRepairRetry) next.push('provider_unsafe_edit_output_repair_retry_used');
+  if (usedPythonCompatibilityCompletion) next.push('provider_completed_python_compatibility_repair');
   return next;
 }
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function truncate(text: string, max: number): string {

@@ -26,10 +26,7 @@
                 </h1>
               </div>
               <div class="title-layer title-layer--cn">
-                <h1 class="hero-title hero-title--cn">
-                  <span class="hero-title__intro">你好，我是</span>
-                  <span class="hero-title__name hero-title__name--cn">全域智能矩阵</span>
-                </h1>
+                <img class="hero-icon" src="./assets/matrixomnix_icon.svg" alt="MatrixOmnix icon - 全域智能矩阵" />
               </div>
             </div>
 
@@ -103,7 +100,7 @@
           <article>
             <h2>Current state</h2>
             <p>
-              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. A live MiniMax run on an agent-facing werewolf demo validated domain-aware research and project-wide Python repair, while also exposing that generated API harnesses still need stricter quality gates.
+              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. A live MiniMax run on an agent-facing werewolf demo validated domain-aware research, stricter production Docker gates, player-supplied model settings and evidence-first repair of stale API tests.
             </p>
           </article>
           <article>
@@ -139,7 +136,7 @@
             <li><strong>Analyze</strong><span>Detect runtime, dependencies, entrypoints, UI/API/CLI/data/worker surfaces, secrets risk and missing project contracts.</span></li>
             <li><strong>Plan</strong><span>Convert gaps into scoped work with acceptance checks, fallback paths and evidence requirements.</span></li>
             <li><strong>Iterate</strong><span>Run one or more controlled executor rounds, then inspect generated reports before trusting the result.</span></li>
-            <li><strong>Verify</strong><span>Run tests, site checks, QA regression memory and project reports before calling a demo product-ready.</span></li>
+            <li><strong>Verify</strong><span>Run <code>matrixomnix gap --project ./demo</code>; by default it executes detected tests/builds and caps the score when evidence is red.</span></li>
           </ol>
         </section>
 

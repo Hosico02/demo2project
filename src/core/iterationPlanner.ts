@@ -8,6 +8,8 @@ import type {
   AdvisoryTaskProposal,
 } from './types.js';
 import { shortId } from '../utils/time.js';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 const MAX_TASKS_PER_ITERATION = 4;
 const MAX_QA_FOCUS_CASES = 3;
@@ -35,6 +37,7 @@ export function planIteration(
   const qaFocusCases = selectQaFocusCases(opts.qaCases ?? []);
   const sortedFindings = gapReport.findings
     .slice()
+    .filter((finding) => !isRedundantMaturityFinding(finding, gapReport))
     .sort((a, b) => {
       const findingDelta = planFindingRank(a) - planFindingRank(b);
       if (findingDelta !== 0) return findingDelta;
@@ -43,7 +46,7 @@ export function planIteration(
   const tasks: AgentTask[] = [];
   const selectedFindings: typeof sortedFindings = [];
   const seenTaskKeys = new Set<string>();
-  const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId);
+  const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId, snapshot.project_path);
   const maxFindingTasks = advisoryTasks.length > 0 ? MAX_TASKS_PER_ITERATION - 1 : MAX_TASKS_PER_ITERATION;
 
   for (const f of sortedFindings) {
@@ -102,12 +105,12 @@ export function planIteration(
   };
 }
 
-function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string): AgentTask[] {
-  const tasks: AgentTask[] = [];
+function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string, projectPath: string): AgentTask[] {
+  const candidates: AgentTask[] = [];
   for (const report of reports) {
     for (const proposal of report.task_proposals) {
       if (!isActionableAdvisoryProposal(proposal)) continue;
-      tasks.push({
+      candidates.push({
         id: shortId('task'),
         iteration_id: iterationId,
         assigned_to: 'executor',
@@ -129,9 +132,29 @@ function buildAdvisoryTasks(reports: AdvisoryReport[], iterationId: string): Age
       });
     }
   }
-  return tasks
-    .sort((a, b) => sevRank(a.priority) - sevRank(b.priority))
-    .slice(0, 1);
+  const seen = new Set<string>();
+  const tasks: AgentTask[] = [];
+  for (const task of candidates.sort((a, b) => {
+    const rankDelta = advisoryTaskRank(a) - advisoryTaskRank(b);
+    if (rankDelta !== 0) return rankDelta;
+    return sevRank(a.priority) - sevRank(b.priority);
+  })) {
+    if (isAlreadySatisfiedMarketAdvisoryTask(task, projectPath)) continue;
+    const key = taskDedupKey(task);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tasks.push(task);
+    if (tasks.length >= MAX_TASKS_PER_ITERATION) break;
+  }
+  return tasks;
+}
+
+function isAlreadySatisfiedMarketAdvisoryTask(task: AgentTask, projectPath: string): boolean {
+  if (!/^close market capability gap:/i.test(task.title)) return false;
+  const expectedFiles = task.expected_changed_files
+    .filter((file) => file && !file.startsWith('(') && !/[*{}]/.test(file));
+  if (expectedFiles.length === 0) return false;
+  return expectedFiles.every((file) => existsSync(path.join(projectPath, file)));
 }
 
 function isActionableAdvisoryProposal(proposal: AdvisoryTaskProposal): boolean {
@@ -174,16 +197,66 @@ function applyQaFocus(tasks: AgentTask[], cases: QACase[]): void {
   }
 }
 
+function isRedundantMaturityFinding(finding: GapReport['findings'][number], gapReport: GapReport): boolean {
+  if (finding.category !== 'below_agent_social_deduction_theater_maturity') return false;
+  const missing = gapReport.product_maturity?.missing_capabilities ?? [];
+  const onlyDeploymentMissing = missing.length > 0 && missing.every((capability) => /deployable runtime|ci hooks/i.test(capability));
+  if (!onlyDeploymentMissing) return false;
+  return gapReport.findings.some((f) =>
+    [
+      'flask_docker_uses_dev_server',
+      'missing_wsgi_entrypoint',
+      'missing_python_production_server',
+      'missing_deployment_artifact',
+      'missing_deployment_docs',
+      'missing_operational_docs',
+    ].includes(f.category),
+  );
+}
+
 function maxSeverity(a: Severity, b: Severity): Severity {
   return sevRank(a) <= sevRank(b) ? a : b;
 }
 
 function taskDedupKey(task: AgentTask): string {
+  const family = taskFamily(task.title);
+  if (family) return family;
   return [
     task.title,
     task.expected_changed_files.join('|'),
     task.verification_commands.join('|'),
   ].join('\0');
+}
+
+function taskFamily(title: string): string | null {
+  const normalized = title.trim().toLowerCase();
+  if (
+    /^(add player-supplied llm provider configuration|repair llm provider select option labels|expand player-selectable llm provider catalog)$/.test(normalized) ||
+    /^close market capability gap:\s*agent model and provider configuration$/.test(normalized)
+  ) {
+    return 'capability:agent_model_configuration';
+  }
+  if (
+    /^close market capability gap:\s*(simulation replay and observability|agent evaluation harness)$/.test(normalized) ||
+    /^harden agent-facing werewolf product loop$/.test(normalized)
+  ) {
+    return 'capability:agent_evaluation_harness';
+  }
+  if (
+    /^close market capability gap:\s*deterministic rules and agent guardrails$/.test(normalized) ||
+    /^add social deduction rules engine$/.test(normalized)
+  ) {
+    return 'capability:deterministic_rules_and_guardrails';
+  }
+  return null;
+}
+
+function advisoryTaskRank(task: AgentTask): number {
+  const family = taskFamily(task.title);
+  if (family === 'capability:agent_evaluation_harness') return 0;
+  if (family === 'capability:deterministic_rules_and_guardrails') return 1;
+  if (family === 'capability:agent_model_configuration') return 2;
+  return 10;
 }
 
 function scoreDeltaForFinding(sev: Severity): number {
@@ -383,7 +456,9 @@ function buildTaskForFinding(
         description: f.message,
         acceptance_criteria: [
           'docs/api-contract.md documents the detected API surface and contract boundary',
+          'docs/api-contract.md and scripts/api-contract-check.mjs are created together in the same task',
           'scripts/api-contract-check.mjs fails when no API surface evidence exists',
+          'scripts/api-contract-check.mjs uses syntax-tolerant route/API evidence checks rather than brittle source string formatting assumptions',
           'package scripts expose api:contract-check without replacing test/build validation',
         ],
         expected_changed_files: ['docs/api-contract.md', 'scripts/api-contract-check.mjs', 'package.json'],
@@ -709,18 +784,20 @@ function buildTaskForFinding(
     case 'missing_wsgi_entrypoint':
     case 'missing_python_production_server':
     case 'missing_deployment_artifact':
+    case 'flask_docker_uses_dev_server':
       return {
         id: shortId('task'),
         iteration_id: iterationId,
         assigned_to: 'executor',
         title: 'Add Flask deployment scaffold',
         description: f.message,
-        acceptance_criteria: ['Dockerfile exists', 'wsgi.py exposes app', 'gunicorn dependency exists'],
+        acceptance_criteria: ['Dockerfile exists', 'wsgi.py exposes app', 'gunicorn dependency exists', 'Dockerfile starts gunicorn instead of app.py'],
         expected_changed_files: ['Dockerfile', '.dockerignore', 'wsgi.py', 'requirements.txt'],
         verification_commands: [
           'test -f Dockerfile',
           'test -f wsgi.py',
           'python3 -c "from pathlib import Path; assert \'gunicorn\' in Path(\'requirements.txt\').read_text().lower()"',
+          'python3 -c "from pathlib import Path; t=Path(\'Dockerfile\').read_text().lower(); assert \'gunicorn\' in t and \'wsgi:app\' in t"',
         ],
         priority: f.severity,
         status: 'pending',

@@ -8,6 +8,7 @@ import { MockAdvisoryProvider } from '../src/agents/advisory/MockAdvisoryProvide
 import { planIteration } from '../src/core/iterationPlanner.js';
 import type { GapReport, ProjectSnapshot, ProjectScore } from '../src/core/types.js';
 import type { AdvisoryProvider, AdvisoryRequest } from '../src/agents/advisory/AdvisoryProvider.js';
+import type { MarketResearchReport } from '../src/research/types.js';
 
 function snapshot(projectPath: string): ProjectSnapshot {
   return {
@@ -88,6 +89,34 @@ function gapReport(projectPath: string): GapReport {
     ],
     blockers: [],
     recommendations: [],
+  };
+}
+
+function marketResearchReport(projectPath: string): MarketResearchReport {
+  return {
+    schema_version: 1,
+    generated_at: new Date(0).toISOString(),
+    project_path: projectPath,
+    domain: 'agent_social_deduction_theater',
+    query: 'agent werewolf replay evaluation',
+    search_provider: 'test',
+    copy_policy: 'Do not copy competitor assets.',
+    sources: [{
+      title: 'Replay docs',
+      url: 'https://example.com/replay',
+      retrieved_at: new Date(0).toISOString(),
+      snippet: 'Mature simulations expose replay and evaluation tooling.',
+    }],
+    capabilities: [{
+      id: 'evaluation_harness',
+      label: 'Replay and evaluation harness',
+      description: 'Persist transcripts and run repeatable agent simulations.',
+      importance: 'required',
+      source_urls: ['https://example.com/replay'],
+      local_evidence_patterns: ['replay', 'evaluation'],
+    }],
+    risks: [],
+    confidence: 'medium',
   };
 }
 
@@ -184,6 +213,98 @@ describe('model-backed advisory agents', () => {
     const advisoryTask = plan.tasks.find((task) => task.title === 'Implement behavior-level product flow')!;
     expect(advisoryTask.description).toContain('Advisory source');
     expect(plan.advisory_focus).toContain('planner_critic: Implement behavior-level product flow');
+  });
+
+  it('planner skips duplicate advisory model-config work and schedules replay evaluation next', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-dedupe-'));
+    const gap = gapReport(dir);
+    gap.findings.push({
+      id: 'gap-llm-config',
+      category: 'missing_user_llm_provider_config',
+      severity: 'blocker',
+      message: 'LLM demo requires player-supplied model/provider configuration',
+      why_it_matters: 'Players should not rely on one server key.',
+      suggested_fix: 'Add per-session LLM provider config.',
+      related_files: ['llm_config.py', 'app.py', 'templates/index.html'],
+    });
+    gap.advisory_reports = [
+      {
+        schema_version: 1,
+        generated_at: new Date(0).toISOString(),
+        role: 'market_comparator',
+        provider: 'mock-advisory',
+        model: 'mock',
+        gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+        findings: [],
+        task_proposals: [
+          {
+            title: 'Close market capability gap: Agent model and provider configuration',
+            description: 'Duplicate of the concrete LLM provider config gap.',
+            acceptance_criteria: ['model/provider config exists'],
+            expected_changed_files: ['llm_config.py', 'tests/test_llm_config.py', 'app.py'],
+            verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+            priority: 'high',
+            confidence: 'high',
+            source_urls: ['https://example.com/model-config'],
+          },
+          {
+            title: 'Close market capability gap: Agent evaluation harness',
+            description: 'Add seeded replay/evaluation behavior.',
+            acceptance_criteria: ['evaluation behavior exists'],
+            expected_changed_files: ['evaluation.py', 'replay.py', 'tests/test_eval_harness.py', 'tests/test_replay.py'],
+            verification_commands: ['python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q'],
+            priority: 'medium',
+            confidence: 'medium',
+            source_urls: ['https://example.com/evaluation'],
+          },
+        ],
+        risks: [],
+        raw_summary: 'Mature agent products expose model config and evaluation.',
+      },
+    ];
+
+    const plan = planIteration(gap, 'make it an agent product', 'iter_advisory_dedupe');
+
+    expect(plan.tasks.map((task) => task.title)).toContain('Add player-supplied LLM provider configuration');
+    expect(plan.tasks.map((task) => task.title)).toContain('Close market capability gap: Agent evaluation harness');
+    expect(plan.tasks.map((task) => task.title)).not.toContain('Close market capability gap: Agent model and provider configuration');
+  });
+
+  it('planner skips already-satisfied market advisory tasks instead of burning an iteration slot', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-satisfied-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    for (const file of ['evaluation.py', 'replay.py', 'tests/test_eval_harness.py', 'tests/test_replay.py', 'docs/agent-evaluation.md', 'README.md', 'package.json']) {
+      await fs.writeFile(path.join(dir, file), file === 'package.json' ? '{}' : 'present\n');
+    }
+    const gap = gapReport(dir);
+    gap.advisory_reports = [
+      {
+        schema_version: 1,
+        generated_at: new Date(0).toISOString(),
+        role: 'market_comparator',
+        provider: 'mock-advisory',
+        model: 'mock',
+        gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+        findings: [],
+        task_proposals: [{
+          title: 'Close market capability gap: Agent evaluation harness',
+          description: 'Already implemented capability should not be re-planned.',
+          acceptance_criteria: ['evaluation behavior exists'],
+          expected_changed_files: ['evaluation.py', 'replay.py', 'tests/test_eval_harness.py', 'tests/test_replay.py', 'docs/agent-evaluation.md', 'README.md', 'package.json'],
+          verification_commands: ['python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q'],
+          priority: 'medium',
+          confidence: 'medium',
+          source_urls: ['https://example.com/evaluation'],
+        }],
+        risks: [],
+        raw_summary: 'Evaluation is common in mature agent products.',
+      },
+    ];
+
+    const plan = planIteration(gap, 'make it an agent product', 'iter_advisory_satisfied');
+
+    expect(plan.tasks.map((task) => task.title)).not.toContain('Close market capability gap: Agent evaluation harness');
   });
 
   it('MiniMax advisory provider parses strict JSON and does not edit project files', async () => {
@@ -302,6 +423,106 @@ describe('model-backed advisory agents', () => {
     expect(repairPrompt).toContain('Previous advisory response was not parseable JSON');
     expect(report.findings[0]?.category).toBe('agent_theater_eval_gap');
     expect(report.risks).not.toContain('MiniMax advisory output was not parseable JSON');
+  });
+
+  it('falls back to source-backed market research proposals when advisory JSON cannot be repaired', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-advisory-market-fallback-'));
+    let calls = 0;
+    const fetchImpl = async (): Promise<Response> => {
+      calls++;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: calls === 1
+                ? 'The project needs replay support, but this is not JSON.'
+                : 'Still not JSON after repair.',
+            },
+          }],
+        }),
+      } as Response;
+    };
+
+    const provider = new MiniMaxAdvisoryProvider({
+      enabled: true,
+      apiKey: 'test-key',
+      fetchImpl,
+      model: 'MiniMax-M2.7-highspeed',
+    });
+    const report = await provider.runAdvisory({
+      role: 'market_comparator',
+      projectPath: dir,
+      goal: 'make the agent theater mature',
+      snapshot: {
+        ...snapshot(dir),
+        detected_language: 'python',
+        package_manager: 'pip',
+        test_commands: [],
+        build_commands: [],
+        important_files: ['README.md', 'requirements.txt', 'app.py'],
+      },
+      score: score(),
+      gap: gapReport(dir),
+      allowNetwork: true,
+      marketResearch: marketResearchReport(dir),
+    });
+
+    expect(calls).toBe(2);
+    expect(report.risks).toContain('MiniMax advisory output was not parseable JSON');
+    expect(report.risks).toContain('fallback_market_research_advisory_used');
+    expect(report.task_proposals[0]?.title).toContain('Replay and evaluation harness');
+    expect(report.task_proposals[0]?.source_urls).toEqual(['https://example.com/replay']);
+    expect(report.task_proposals[0]?.expected_changed_files).toEqual([
+      'evaluation.py',
+      'replay.py',
+      'tests/test_eval_harness.py',
+      'tests/test_replay.py',
+      'docs/agent-evaluation.md',
+      'README.md',
+      'package.json',
+    ]);
+    expect(report.task_proposals[0]?.verification_commands).toEqual(['python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q']);
+  });
+
+  it('falls back to source-backed market research proposals when advisory API calls fail', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-advisory-api-fallback-'));
+    const fetchImpl = async (): Promise<Response> => ({
+      ok: false,
+      status: 504,
+      json: async () => ({}),
+    } as Response);
+
+    const provider = new MiniMaxAdvisoryProvider({
+      enabled: true,
+      apiKey: 'test-key',
+      fetchImpl,
+      model: 'MiniMax-M2.7-highspeed',
+    });
+    const report = await provider.runAdvisory({
+      role: 'market_comparator',
+      projectPath: dir,
+      goal: 'make the agent theater mature',
+      snapshot: {
+        ...snapshot(dir),
+        detected_language: 'python',
+        package_manager: 'pip',
+        test_commands: [],
+        build_commands: [],
+        important_files: ['README.md', 'requirements.txt', 'app.py'],
+      },
+      score: score(),
+      gap: gapReport(dir),
+      allowNetwork: true,
+      marketResearch: marketResearchReport(dir),
+    });
+
+    expect(report.risks).toContain('MiniMax advisory API failed with status 504');
+    expect(report.risks).toContain('fallback_market_research_advisory_used');
+    expect(report.findings[0]?.source_urls).toEqual(['https://example.com/replay']);
+    expect(report.findings[0]?.related_files).toContain('evaluation.py');
+    expect(report.task_proposals[0]?.title).toContain('Replay and evaluation harness');
   });
 
   it('runs independent advisory roles in parallel', async () => {

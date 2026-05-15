@@ -5,8 +5,10 @@ export async function gap(flags: Record<string, string | boolean>): Promise<numb
   const project = requireProject(flags);
   if (!project) return 2;
   const agent = new AnalyzerAgent();
-  const evidence = flags.evidence === true || flags.evidence === 'true';
-  const runCommands = flags.verify === true || flags.verify === 'true';
+  const fast = flags.fast === true || flags.fast === 'true';
+  const noVerify = flags['no-verify'] === true || flags['no-verify'] === 'true' || flags.verify === 'false';
+  const evidence = !fast && flags.evidence !== 'false';
+  const runCommands = evidence && !noVerify;
   const { gap } = evidence
     ? await agent.fullAnalyzeWithEvidence(project, { runCommands, timeoutMs: 60_000 })
     : await agent.fullAnalyze(project);

@@ -9,7 +9,9 @@ pnpm demo2project recipes:recommend --project $PROJECT
 ```
 
 `analyze` is read-only and idempotent. It writes nothing into the target
-project unless you go on to `iterate`.
+project unless you go on to `iterate`. `gap` runs evidence verification by
+default and may execute detected test/build commands; pass `--fast` for a
+static-only scan.
 
 ## Reading the output
 

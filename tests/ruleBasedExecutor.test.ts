@@ -402,6 +402,53 @@ describe('RuleBasedExecutor', () => {
     expect(result.changed_files).toContain('wsgi.py');
     const req = await fs.readFile(path.join(dir, 'requirements.txt'), 'utf8');
     expect(req).toContain('gunicorn>=22.0.0');
+    const dockerfile = await fs.readFile(path.join(dir, 'Dockerfile'), 'utf8');
+    expect(dockerfile).toContain('gunicorn');
+    expect(dockerfile).toContain('wsgi:app');
+    expect(dockerfile).not.toContain('CMD ["python", "app.py"]');
+  });
+
+  it('repairs an existing Flask Dockerfile that starts app.py directly', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-docker-repair-'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\ngunicorn>=22.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'flask>=3.0.0,<4.0.0\n');
+    await fs.writeFile(path.join(dir, 'Dockerfile'), [
+      'FROM python:3.11-slim',
+      'WORKDIR /app',
+      'COPY . .',
+      'CMD ["python", "app.py"]',
+      '',
+    ].join('\n'));
+    const exec = new RuleBasedExecutor();
+
+    const result = await exec.runTask(
+      {
+        id: 'deploy-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add Flask deployment scaffold',
+        description: 'Dockerfile starts Flask with a development server',
+        acceptance_criteria: ['Dockerfile starts gunicorn instead of app.py'],
+        expected_changed_files: ['Dockerfile', 'wsgi.py', 'requirements.txt', 'constraints.txt'],
+        verification_commands: [
+          'python3 -c "from pathlib import Path; t=Path(\'Dockerfile\').read_text().lower(); assert \'gunicorn\' in t and \'wsgi:app\' in t"',
+        ],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('Dockerfile');
+    expect(result.changed_files).toContain('constraints.txt');
+    const dockerfile = await fs.readFile(path.join(dir, 'Dockerfile'), 'utf8');
+    expect(dockerfile).toContain('RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt');
+    expect(dockerfile).toContain('gunicorn');
+    expect(dockerfile).not.toContain('CMD ["python", "app.py"]');
+    const constraints = await fs.readFile(path.join(dir, 'constraints.txt'), 'utf8');
+    expect(constraints).toContain('gunicorn>=22.0.0,<23.0.0');
   });
 
   it('adds Flask health and missing-key guard for compatible app.py demos', async () => {
@@ -924,6 +971,59 @@ describe('RuleBasedExecutor', () => {
     expect(tests).not.toContain('lambda: 0');
   });
 
+  it('repairs over-specified Python smoke tests generated from hallucinated source expectations', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-smoke-overspecified-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'game.py'), 'MODES = ["m6", "m8", "m9", "m10", "m11"]\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask',
+      'app = Flask(__name__)',
+      '',
+      '@app.route("/stream/<game_id>")',
+      'def stream(game_id):',
+      '    return game_id',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_smoke.py'), [
+      'from pathlib import Path',
+      '',
+      'def test_five_modes_in_source():',
+      '    text = Path("game.py").read_text()',
+      '    for mode in ["m6", "m7", "m8", "m9", "m10", "m11"]:',
+      '        assert mode in text, f"Mode {mode} not found"',
+      '',
+      'def test_required_routes_defined():',
+      '    text = Path("app.py").read_text()',
+      '    required_routes = ["/start", "/stream"]',
+      '    for route in required_routes:',
+      '        assert route in text, f"Route {route} not found"',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'repair-smoke',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest -q',
+        description: 'tests/test_smoke.py invented m7 and exact /stream route expectations not present in source',
+        acceptance_criteria: ['replace brittle smoke tests with source-safe compile checks'],
+        expected_changed_files: ['tests/test_smoke.py'],
+        verification_commands: ['python3 -m pytest -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(['tests/test_smoke.py']);
+    const smoke = await fs.readFile(path.join(dir, 'tests', 'test_smoke.py'), 'utf8');
+    expect(smoke).toContain('ast.parse');
+    expect(smoke).not.toContain('m7');
+    expect(smoke).not.toContain('required_routes');
+  });
+
   it('repairs secret redaction source behavior without rewriting tests', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-secret-redaction-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -1335,6 +1435,85 @@ describe('RuleBasedExecutor', () => {
     expect(tests).toContain('test_account_lobby_and_host_flow');
     const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
     expect(pkg.scripts.test).toBe('python3 -m pytest -q');
+  });
+
+  it('implements source-backed agent evaluation market gaps with a replay harness', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-agent-evaluation-gap-'));
+    await fs.writeFile(path.join(dir, 'README.md'), '# Agent Werewolf\n\nAgent-facing social deduction demo.\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'agent-werewolf', scripts: {} }, null, 2));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'agent-eval-gap',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Close market capability gap: Agent evaluation harness',
+        description: 'Source-backed market research identified seeded replay/evaluation as a mature-product capability.',
+        acceptance_criteria: ['evaluation harness exists as behavior, not only documentation'],
+        expected_changed_files: ['evaluation.py', 'replay.py', 'tests/test_eval_harness.py', 'tests/test_replay.py', 'docs/agent-evaluation.md', 'README.md', 'package.json'],
+        verification_commands: ['python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('evaluation.py');
+    expect(result.changed_files).toContain('replay.py');
+    expect(result.changed_files).toContain('tests/test_eval_harness.py');
+    expect(result.changed_files).toContain('tests/test_replay.py');
+    expect(result.changed_files).toContain('docs/agent-evaluation.md');
+    const evaluation = await fs.readFile(path.join(dir, 'evaluation.py'), 'utf8');
+    expect(evaluation).toContain('class AgentEvaluationHarness');
+    expect(evaluation).toContain('"events"');
+    const readme = await fs.readFile(path.join(dir, 'README.md'), 'utf8');
+    expect(readme).toContain('## Agent Evaluation');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts['agent:evaluate']).toBe('python3 -m pytest tests/test_eval_harness.py tests/test_replay.py -q');
+  });
+
+  it('hardens the agent-facing werewolf product loop as executable behavior', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-agent-product-loop-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Agents\n\nAgent-facing demo.\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'werewolf-agents', scripts: {} }, null, 2));
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask',
+      'app = Flask(__name__)',
+      '@app.route("/")',
+      'def index(): return "ok"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'game.py'), 'def play():\n    return "ok"\n');
+    await fs.writeFile(path.join(dir, 'player.py'), 'class Player:\n    pass\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), 'def build_system_prompt():\n    return "role secrecy guardrail invalid action"\n');
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<form id="start-form"></form>\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'agent-product-loop',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Harden agent-facing werewolf product loop',
+        description: 'Agent-facing product maturity is below market-ready.',
+        acceptance_criteria: ['agent product loop has provider config, rules, replay and evaluation behavior'],
+        expected_changed_files: ['llm_config.py', 'rules.py', 'evaluation.py', 'replay.py', 'docs/agent-product.md'],
+        verification_commands: ['python3 -m pytest -q'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('llm_config.py');
+    expect(result.changed_files).toContain('rules.py');
+    expect(result.changed_files).toContain('evaluation.py');
+    expect(result.changed_files).toContain('replay.py');
+    expect(result.changed_files).toContain('docs/agent-product.md');
+    const doc = await fs.readFile(path.join(dir, 'docs', 'agent-product.md'), 'utf8');
+    expect(doc).toContain('agent simulation');
   });
 
   it('integrates social product backbone into Flask app workflows', async () => {
@@ -2056,6 +2235,97 @@ describe('RuleBasedExecutor', () => {
     expect(llmConfig).toContain('os.environ.get("OPENAI_API_KEY"');
   });
 
+  it('repairs generated LLM config contract drift instead of preserving inconsistent tests', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-llm-generated-contract-drift-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from llm_config import LLMConfigError, public_config, redact_config, validate_llm_config',
+      '',
+      'def start(body):',
+      '    try:',
+      '        cfg = validate_llm_config(body.get("llm", {}))',
+      '    except LLMConfigError as exc:',
+      '        return {"error": str(exc)}',
+      '    return {"safe": redact_config(cfg), "public": public_config(cfg)}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'from typing import Optional',
+      '',
+      'PROVIDER_PRESETS: dict[str, dict] = {',
+      '    "deepseek": {"name": "DeepSeek", "base_url": "https://api.deepseek.com", "default_model": "deepseek-chat", "models": ["deepseek-chat"]},',
+      '    "custom": {"name": "Custom", "base_url": "", "default_model": "", "models": []},',
+      '}',
+      '',
+      'class LLMConfigError(ValueError):',
+      '    pass',
+      '',
+      'def redact_key(key: Optional[str]) -> str:',
+      '    if not key:',
+      '        return "(none)"',
+      '    if len(key) <= 8:',
+      '        return "***"',
+      '    return f"{key[:5]}...{key[-4:]}"',
+      '',
+      'def redact_config(config: dict) -> dict:',
+      '    safe = dict(config)',
+      '    if "api_key" in safe and safe["api_key"]:',
+      '        safe["api_key"] = redact_key(safe["api_key"])',
+      '    return safe',
+      '',
+      'def validate_llm_config(config: dict) -> dict:',
+      '    api_key = config.get("api_key", "").strip()',
+      '    if not api_key:',
+      '        raise LLMConfigError("api_key is required")',
+      '    provider = config.get("provider", "deepseek")',
+      '    preset = PROVIDER_PRESETS[provider]',
+      '    return {"provider": provider, "api_key": api_key, "base_url": preset["base_url"], "model": preset["default_model"]}',
+      '',
+      'def public_config(config: dict) -> dict:',
+      '    return {k: v for k, v in config.items() if k != "api_key"}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_llm_config.py'), [
+      'from llm_config import PROVIDER_PRESETS, redact_config, redact_key, validate_llm_config',
+      '',
+      'def test_generated_redaction_contract_drift():',
+      '    assert redact_key("sk-abcdef123456") == "sk-ab...3456"',
+      '    assert redact_key("sk-12345678") == "sk-1...5678"',
+      '    assert redact_config({"provider": "deepseek"})["api_key"] == "(none)"',
+      '',
+      'def test_generated_custom_provider_has_model_drift():',
+      '    cfg = validate_llm_config({"provider": "custom", "api_key": "sk-test", "base_url": "https://example.com/v1"})',
+      '    assert cfg["model"]',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'llm-generated-contract-drift',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest tests/test_llm_config.py -q',
+        description: 'Generated LLM config tests failed around redact_key, missing api_key redaction and custom model defaults.',
+        acceptance_criteria: ['LLM provider config exposes a stable product contract'],
+        expected_changed_files: ['llm_config.py', 'tests/test_llm_config.py'],
+        verification_commands: ['python3 -m pytest tests/test_llm_config.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(expect.arrayContaining(['llm_config.py', 'tests/test_llm_config.py']));
+    const llmConfig = await fs.readFile(path.join(dir, 'llm_config.py'), 'utf8');
+    expect(llmConfig).toContain('def resolve_llm_config');
+    expect(llmConfig).toContain('def public_provider_config');
+    expect(llmConfig).toContain('"custom-model"');
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_llm_config.py'), 'utf8');
+    expect(tests).toContain('test_public_provider_config_contains_non_empty_player_choices');
+    expect(tests).toContain('redact_key("sk-12345678") == "sk-1...5678"');
+  });
+
   it('repairs stale Flask tests after player-supplied LLM keys become accepted', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-player-key-test-repair-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -2129,6 +2399,66 @@ describe('RuleBasedExecutor', () => {
     expect(tests).toContain('assert response.status_code == 400');
     expect(tests).toContain('assert response.get_json()["error"] == "invalid_mode"');
     expect(tests).not.toContain('Expected api_key_required');
+  });
+
+  it('repairs missing-key Flask tests that accidentally include a player API key', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-missing-key-test-repair-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      '@app.route("/start", methods=["POST"])',
+      'def start_game():',
+      '    body = request.get_json(silent=True) or {}',
+      '    if not body.get("api_key"):',
+      '        return jsonify({"error": "missing_api_key"}), 400',
+      '    return jsonify({"game_id": "game-1"})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'llm_config.py'), [
+      'def resolve_llm_config(payload, environ=None):',
+      '    return {"ok": bool((payload or {}).get("api_key"))}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_app.py'), [
+      'import pytest',
+      '',
+      '@pytest.fixture()',
+      'def client():',
+      '    from app import app',
+      '    app.config.update(TESTING=True)',
+      '    with app.test_client() as client:',
+      '        yield client',
+      '',
+      'def test_start_rejects_missing_key(client):',
+      '    response = client.post("/start", json={"mode": "m6", "api_key": "test-key"})',
+      '    assert response.status_code == 400',
+      '    assert response.get_json()["error"] == "missing_api_key"',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'missing-key-test-repair',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failed verification: python3 -m pytest -q',
+        description: 'test_start_rejects_missing_key got 200 because the test supplied api_key while asserting missing_api_key',
+        acceptance_criteria: ['missing-key tests omit player API keys'],
+        expected_changed_files: ['tests/test_app.py'],
+        verification_commands: ['python3 -m pytest tests/test_app.py -q'],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toEqual(['tests/test_app.py']);
+    const tests = await fs.readFile(path.join(dir, 'tests', 'test_app.py'), 'utf8');
+    expect(tests).toContain('json={"mode": "m6"}');
+    expect(tests).toContain('assert response.status_code == 400');
+    expect(tests).not.toContain('"api_key": "test-key"');
   });
 
   it('keeps LLM config compatibility repair idempotent', async () => {

@@ -71,6 +71,64 @@ describe('iterationPlanner', () => {
     expect(plan.tasks.map((t) => t.title)).toContain('Add Flask deployment scaffold');
   });
 
+  it('does not schedule broad agent-theater hardening when only deployment remains', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-agent-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['app.py', 'Dockerfile', 'wsgi.py', 'tests'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-docker-dev',
+          category: 'flask_docker_uses_dev_server',
+          severity: 'high',
+          message: 'Dockerfile starts Flask with a development server',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['Dockerfile', 'wsgi.py', 'requirements.txt'],
+        },
+        {
+          id: 'gap-maturity',
+          category: 'below_agent_social_deduction_theater_maturity',
+          severity: 'medium',
+          message: 'Agent-facing maturity below product grade',
+          why_it_matters: '',
+          suggested_fix: 'Close missing market capabilities: Deployable runtime with CI hooks.',
+          related_files: ['docs/agent-product.md'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+      product_maturity: {
+        domain: 'agent_social_deduction_theater',
+        target_market: 'mature agent-facing werewolf simulation and observer product',
+        score: 90,
+        level: 'market_parity_candidate',
+        summary: 'missing deployment only',
+        capabilities: [],
+        missing_capabilities: ['Deployable runtime with CI hooks'],
+        references: [],
+      },
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'fix deployment only');
+    const titles = plan.tasks.map((t) => t.title);
+
+    expect(titles).toContain('Add Flask deployment scaffold');
+    expect(titles).not.toContain('Harden agent-facing werewolf product loop');
+  });
+
   it('plans industrial runtime hardening for Flask product gaps', () => {
     const planner = new PlannerAgent();
     const baseFinding = {
@@ -938,6 +996,8 @@ describe('iterationPlanner', () => {
       'Add data migration contract harness',
       'Add worker contract harness',
     ]);
+    expect(plan.tasks[0]?.acceptance_criteria.join('\n')).toContain('docs/api-contract.md and scripts/api-contract-check.mjs are created together');
+    expect(plan.tasks[0]?.acceptance_criteria.join('\n')).toContain('syntax-tolerant');
     expect(plan.tasks.map((t) => t.verification_commands[0])).toEqual([
       'node scripts/api-contract-check.mjs',
       'node scripts/config-contract-check.mjs',
