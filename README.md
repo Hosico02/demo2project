@@ -88,6 +88,9 @@ The current system is intentionally strict about evidence:
 - Broad deterministic backlogs can expand to six planned tasks in one round, so
   demos with many obvious productization gaps spend fewer iterations on
   mechanical setup while ordinary plans stay small.
+- The 12-fixture stress suite now reaches product-ready on 12/12 demo types:
+  UI SPA, API, CLI, LLM chat, game, WebGL/3D, ML inference, media pipeline,
+  browser extension, notebook, mobile and desktop.
 - agent-facing social deduction demos now get a dedicated maturity model, so
   MatrixOmnix can preserve the multi-agent theater premise while still gating
   rules, model/provider configuration, replay, evaluation and observability.
@@ -439,6 +442,10 @@ their claims are only accepted after local verification and scoring.
   deterministic scaffolds instead of model free edits. This remains a
   productization baseline rather than a claim that no human release review is
   needed.
+- The built-in stress suite now reports `12/12 product_ready` across UI, API,
+  CLI, LLM, game, 3D, ML, media, browser extension, notebook, mobile and
+  desktop demo fixtures. Specialized surfaces get behavior-level workflow
+  repairs instead of stopping at docs and contract harnesses.
 
 ---
 

@@ -1108,6 +1108,46 @@ describe('iterationPlanner', () => {
     expect(task?.verification_commands).toContain('node scripts/product-runtime-check.mjs');
   });
 
+  it('plans behavior-level workflow repair for shallow specialized surfaces', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/game-demo',
+        detected_language: 'javascript',
+        detected_frameworks: [],
+        package_manager: 'npm',
+        test_commands: ['npm test'],
+        build_commands: ['npm run build'],
+        start_commands: ['npm start'],
+        important_files: ['package.json', 'src', 'scripts/product-runtime-check.mjs'],
+        missing_files: [],
+        dependency_summary: { runtime: 1, dev: 0, has_lockfile: false },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-depth',
+          category: 'specialized_surface_shallow_product',
+          severity: 'high',
+          message: 'Specialized product surface is still a shallow demo shell',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['src', 'tests', 'scripts/product-runtime-check.mjs'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'add behavior-level product depth');
+    const task = plan.tasks.find((t) => t.title === 'Add specialized surface product workflow');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('tests/specialized-surface-depth.test.mjs');
+    expect(task?.verification_commands).toContain('node --test tests/specialized-surface-depth.test.mjs');
+  });
+
   it('does not starve surface and contract harnesses behind generic demo chores', () => {
     const planner = new PlannerAgent();
     const base = {

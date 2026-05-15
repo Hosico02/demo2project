@@ -3254,6 +3254,76 @@ describe('RuleBasedExecutor', () => {
     expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
   });
 
+  it('adds behavior-level workflows for shallow specialized surfaces', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-specialized-depth-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'game-depth-demo',
+      type: 'module',
+      dependencies: { phaser: '^3.90.0' },
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'game.js'), 'new Phaser.Game({ scene: { create() {} } });\n');
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'surface-depth',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Add specialized surface product workflow',
+        description: 'Specialized product surface is still a shallow demo shell',
+        acceptance_criteria: ['workflow source and tests exist'],
+        expected_changed_files: ['src', 'tests/specialized-surface-depth.test.mjs', 'package.json'],
+        verification_commands: ['node --test tests/specialized-surface-depth.test.mjs'],
+        priority: 'high',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('src/gameplay-workflow.mjs');
+    expect(result.changed_files).toContain('tests/specialized-surface-depth.test.mjs');
+    expect(await fs.readFile(path.join(dir, 'src', 'gameplay-workflow.mjs'), 'utf8')).toContain('collision');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
+  it('replaces echo-only Node build scripts with source syntax checks', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-node-build-'));
+    await fs.mkdir(path.join(dir, 'bin'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'bin', 'demo.js'), '#!/usr/bin/env node\nconsole.log("demo");\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'node-build-demo',
+      type: 'module',
+      bin: { 'node-build-demo': './bin/demo.js' },
+      scripts: { build: 'node -e "console.log(\'build ok\')"' },
+    }, null, 2));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'node-build',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Replace echo-only build script',
+        description: 'Build command is echo-only',
+        acceptance_criteria: ['build validates source files'],
+        expected_changed_files: ['package.json'],
+        verification_commands: ['npm run build'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
+    expect(pkg.scripts.build).toBe('node --check bin/demo.js');
+    expect(result.verification_evidence.every((e) => e.passed)).toBe(true);
+  });
+
   it('keeps Python validation scripts when adding cross-runtime contract harnesses', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-contract-harness-'));
     await fs.writeFile(path.join(dir, 'app.py'), [

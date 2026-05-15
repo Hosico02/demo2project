@@ -45,6 +45,13 @@ This note records the issues found while testing Demo2Project against
 15. A broad agent-social-deduction maturity finding could survive alongside
     more precise deterministic-rules and deployment findings, causing the
     planner to schedule an over-wide hardening task after the precise tasks.
+16. Specialized non-Flask surfaces reached an engineering baseline but not
+    product-ready. Game, 3D, ML, media, extension, notebook, mobile and desktop
+    fixtures all stalled on `specialized_surface_shallow_product` because the
+    executor only added contract/runtime shells, not behavior-level workflows.
+17. CLI demos could keep an echo-only `build` script because Node build repair
+    did not force replacement and reused another `console.log("build ok")`
+    command.
 
 ## Changes made
 
@@ -121,6 +128,16 @@ This note records the issues found while testing Demo2Project against
   MiniMax-M2.7-highspeed run on a restored `werewolf-demo` copy now finishes in
   three iterations with 17 planned tasks, no repair task, `97/100`, zero open
   findings and `33 passed`.
+- Specialized surfaces now get a deterministic behavior-depth repair task. The
+  rule-based executor writes surface-specific workflows and tests for games,
+  WebGL/3D scenes, ML inference, media pipelines, browser extensions, notebooks,
+  mobile apps and desktop apps. This clears shallow-shell findings instead of
+  looping on generic `Address gap` tasks.
+- Node build repair now replaces echo-only build scripts with real
+  `node --check` commands over detected entrypoints or product-core files.
+- After these fixes, `pnpm demo:stress:product-ready` reports 12/12 fixtures
+  product-ready across UI, API, CLI, LLM chat, game, 3D, ML, media, browser
+  extension, notebook, mobile and desktop demos.
 
 ## Recommended 10-hour command
 

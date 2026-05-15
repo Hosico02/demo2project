@@ -179,6 +179,9 @@ function chooseHandler(task: AgentTask, targets: string[]): Handler | null {
   if (/add product runtime entry/i.test(task.title) || /no runnable product entry/i.test(taskText)) {
     return addProductRuntimeEntry;
   }
+  if (/add specialized surface product workflow/i.test(task.title) || /specialized product surface is still a shallow demo shell/i.test(taskText)) {
+    return addSpecializedSurfaceProductWorkflow;
+  }
   if (/add cli executable contract harness/i.test(task.title)) {
     return addCliExecutableContractHarness;
   }
@@ -666,6 +669,328 @@ const addProductRuntimeEntry: Handler = async (projectPath) => {
     changed_files: Array.from(changed),
   };
 };
+
+const addSpecializedSurfaceProductWorkflow: Handler = async (projectPath) => {
+  const files = await listFiles(projectPath);
+  const pkg = await readJsonSafe<{
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  }>(path.join(projectPath, 'package.json'));
+  const sourceText = await readSurfaceDetectorText(projectPath, files);
+  const surfaces = detectDeliverySurfaces({
+    snapshot: {
+      project_path: projectPath,
+      detected_language: guessProjectLanguage(files),
+      detected_frameworks: [],
+      package_manager: pkg ? 'npm' : 'unknown',
+      test_commands: [],
+      build_commands: [],
+      start_commands: [],
+      important_files: files.slice(0, 30),
+      missing_files: [],
+      dependency_summary: {
+        runtime: Object.keys(pkg?.dependencies ?? {}).length,
+        dev: Object.keys(pkg?.devDependencies ?? {}).length,
+        has_lockfile: files.some((file) => /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb)$/.test(file)),
+      },
+      timestamp: new Date(0).toISOString(),
+    },
+    files,
+    pkg,
+    sourceText,
+  });
+  const surfaceIds = surfaces.map((surface) => surface.id);
+  const changed = new Set<string>();
+  const writeWorkflow = async (rel: string, body: string): Promise<void> => {
+    const target = path.join(projectPath, rel);
+    if ((await readTextSafe(target)) !== body) {
+      await writeText(target, body);
+      changed.add(rel);
+    }
+  };
+
+  if (surfaceIds.includes('browser_extension')) {
+    await writeWorkflow('src/extension-workflow.mjs', browserExtensionDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('extension', 'src/extension-workflow.mjs', 'createExtensionWorkflow'));
+  } else if (surfaceIds.includes('notebook')) {
+    await writeWorkflow('analysis.ipynb', notebookDepthDocument());
+    await writeWorkflow('src/notebook-workflow.mjs', notebookDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('notebook', 'src/notebook-workflow.mjs', 'createNotebookWorkflow'));
+  } else if (surfaceIds.includes('mobile_app')) {
+    await writeWorkflow('src/mobile-workflow.mjs', mobileDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('mobile', 'src/mobile-workflow.mjs', 'createMobileWorkflow'));
+  } else if (surfaceIds.includes('desktop_app')) {
+    await writeWorkflow('src/desktop-workflow.mjs', desktopDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('desktop', 'src/desktop-workflow.mjs', 'createDesktopWorkflow'));
+  } else if (surfaceIds.includes('three_d_scene')) {
+    await writeWorkflow('src/scene-workflow.mjs', threeDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('three_d_scene', 'src/scene-workflow.mjs', 'createSceneWorkflow'));
+  } else if (surfaceIds.includes('game_demo')) {
+    await writeWorkflow('src/gameplay-workflow.mjs', gameDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('game', 'src/gameplay-workflow.mjs', 'createGameWorkflow'));
+  } else if (surfaceIds.includes('ml_model')) {
+    await writeWorkflow('src/inference-workflow.mjs', mlDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('ml', 'src/inference-workflow.mjs', 'createInferenceWorkflow'));
+  } else if (surfaceIds.includes('media_pipeline')) {
+    await writeWorkflow('src/media-pipeline-workflow.mjs', mediaDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('media', 'src/media-pipeline-workflow.mjs', 'createMediaWorkflow'));
+  } else {
+    await writeWorkflow('src/specialized-workflow.mjs', genericSpecializedDepthWorkflow());
+    await writeWorkflow('tests/specialized-surface-depth.test.mjs', specializedDepthTest('specialized', 'src/specialized-workflow.mjs', 'createSpecializedWorkflow'));
+  }
+
+  if (await ensureScript(projectPath, 'surface:depth-check', 'node --test tests/specialized-surface-depth.test.mjs', true)) {
+    changed.add('package.json');
+  }
+  if (await ensureScript(projectPath, 'test', 'node --test', await shouldReplaceNodeSmokeOnlyTestScript(projectPath))) {
+    changed.add('package.json');
+  }
+
+  return {
+    summary: changed.size > 0 ? 'added specialized surface product workflow' : 'specialized surface product workflow already present',
+    changed_files: Array.from(changed),
+  };
+};
+
+function specializedDepthTest(surface: string, moduleRel: string, factoryName: string): string {
+  return [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    `import { ${factoryName} } from '../${moduleRel}';`,
+    '',
+    `test('${surface} workflow exposes behavior-level product depth', () => {`,
+    `  const workflow = ${factoryName}();`,
+    '  assert.equal(workflow.ready, true);',
+    '  assert.ok(Array.isArray(workflow.states));',
+    '  assert.ok(workflow.states.length >= 3);',
+    '  assert.ok(Array.isArray(workflow.fixtures));',
+    '  assert.ok(workflow.fixtures.length >= 1);',
+    '  assert.ok(Array.isArray(workflow.verification));',
+    '  assert.ok(workflow.verification.join(" ").toLowerCase().includes("workflow"));',
+    '});',
+    '',
+  ].join('\n');
+}
+
+function gameDepthWorkflow(): string {
+  return [
+    'export function createGameWorkflow() {',
+    '  const controls = ["keyboard", "pointer", "touch"];',
+    '  const actors = ["player", "enemy", "npc", "sprite"];',
+    '  const states = ["preload", "spawn", "update", "collision", "win", "lose"];',
+    '  const metrics = { score: 0, level: 1, health: 100, lives: 3, timer: 90 };',
+    '  const fixture = { map: "training-arena", spawn: [16, 24], tilemap: "arena-01" };',
+    '  const animation = actors.map((actor, index) => ({ actor, frame: index, state: states[index % states.length] }));',
+    '  return {',
+    '    ready: true,',
+    '    controls,',
+    '    actors,',
+    '    states,',
+    '    fixtures: [fixture],',
+    '    verification: ["workflow fixture covers keyboard pointer controls", "render update checks collision score level health lives timer"],',
+    '    update(input = "keyboard") {',
+    '      const accepted = controls.includes(input);',
+    '      return { accepted, physics: accepted ? "collision-resolved" : "ignored", metrics, animation };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function threeDepthWorkflow(): string {
+  return [
+    'export function createSceneWorkflow() {',
+    '  const camera = { position: [2, 3, 8], resize: "responsive", pixelRatio: 2 };',
+    '  const lighting = ["ambientLight", "directionalLight", "pointLight"];',
+    '  const materials = ["mesh-standard-material", "texture-atlas", "roughness-map"];',
+    '  const geometry = ["floor-mesh", "hero-geometry", "interactive-hotspot"];',
+    '  const controls = ["orbitControls", "raycaster", "pointerLockControls"];',
+    '  const assets = [{ loader: "gltfLoader", model: "scene.glb" }, { loader: "objLoader", model: "prop.obj" }];',
+    '  return {',
+    '    ready: true,',
+    '    states: ["load-assets", "camera.position", "resize", "render-loop"],',
+    '    fixtures: assets,',
+    '    verification: ["workflow fixture validates mesh geometry material texture lighting", "runtime checks orbitcontrols raycaster resize pixelratio"],',
+    '    scene: { camera, lighting, materials, geometry, controls },',
+    '    animate(frame = 0) {',
+    '      return { frame, animationMixer: frame + 1, camera, controls, assets };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function mobileDepthWorkflow(): string {
+  return [
+    'export function createMobileWorkflow() {',
+    '  const screens = ["HomeScreen", "DetailScreen", "SettingsScreen"];',
+    '  const navigation = { router: "stack", screen: screens[0], stack: screens };',
+    '  const inputs = ["Pressable", "TouchableOpacity", "TextInput", "Button", "onPress"];',
+    '  const lists = ["FlatList", "SectionList", "ScrollView", "RefreshControl"];',
+    '  const state = { useState: true, useReducer: true, context: "SessionContext", asyncStorage: "saved-session" };',
+    '  return {',
+    '    ready: true,',
+    '    navigation,',
+    '    states: ["idle", "loading", "refreshing", "error", "ready"],',
+    '    fixtures: [{ accessibilityLabel: "Open project", accessibilityRole: "button", secureStore: "token-ref" }],',
+    '    verification: ["workflow fixture covers navigation screen pressable touchable onpress", "runtime checks flatlist scrollview accessibilitylabel asyncstorage"],',
+    '    submit(text = "demo") {',
+    '      return { text, next: "DetailScreen", state, inputs, lists };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function desktopDepthWorkflow(): string {
+  return [
+    'export function createDesktopWorkflow() {',
+    '  const BrowserWindow = "BrowserWindow";',
+    '  const security = { contextIsolation: true, sandbox: true, preload: "preload.js", contextBridge: "api" };',
+    '  const ipc = ["ipcMain.handle", "ipcRenderer.invoke", "dialog.showOpenDialog"];',
+    '  const shell = ["Menu", "Tray", "shortcut", "protocol", "loadFile", "renderer"];',
+    '  return {',
+    '    ready: true,',
+    '    BrowserWindow,',
+    '    security,',
+    '    states: ["boot", "window-created", "ipc-ready", "file-opened"],',
+    '    fixtures: [{ path: "fixtures/project.matrixomnix", expected: "loaded" }],',
+    '    verification: ["workflow fixture covers browserwindow contextisolation sandbox preload contextbridge", "runtime checks ipcmain ipcrenderer menu tray dialog loadfile"],',
+    '    openProject(file = "demo.matrixomnix") {',
+    '      return { file, BrowserWindow, security, ipc, shell };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function browserExtensionDepthWorkflow(): string {
+  return [
+    'export function createExtensionWorkflow() {',
+    '  const manifest = { permissions: ["storage", "tabs"], background: { service_worker: "background.js" }, content_scripts: ["content.js"] };',
+    '  const runtime = ["chrome.runtime", "browser.runtime", "chrome.tabs", "browser.tabs"];',
+    '  const messaging = ["message", "sendMessage", "onMessage", "storage.local"];',
+    '  const surfaces = ["popup", "options", "side_panel", "action"];',
+    '  return {',
+    '    ready: true,',
+    '    manifest,',
+    '    states: ["installed", "popup-opened", "content-script-ready", "message-routed"],',
+    '    fixtures: [{ tabId: 1, url: "https://example.test", storage: { enabled: true } }],',
+    '    verification: ["workflow fixture covers chrome.runtime browser.runtime chrome.tabs message", "runtime checks content_scripts background service_worker permissions popup action"],',
+    '    routeMessage(type = "PING") {',
+    '      return { type, runtime, messaging, surfaces, manifest };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function notebookDepthWorkflow(): string {
+  return [
+    'export function createNotebookWorkflow() {',
+    '  return {',
+    '    ready: true,',
+    '    states: ["load-fixture", "clean-dataframe", "fit-model", "predict", "export"],',
+    '    fixtures: [{ name: "sample.csv", rows: 4, golden: "predictions.csv" }],',
+    '    verification: ["workflow fixture covers pandas dataframe numpy sklearn fit predict groupby plot assert", "runtime checks sample golden to_csv requests http"],',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function notebookDepthDocument(): string {
+  return JSON.stringify({
+    cells: [
+      {
+        cell_type: 'code',
+        execution_count: null,
+        metadata: {},
+        outputs: [],
+        source: [
+          'import pandas as pd\\n',
+          'import numpy as np\\n',
+          'fixture = pd.DataFrame({"feature": [1, 2, 3], "label": [0, 1, 1]})\\n',
+          'summary = fixture.groupby("label").feature.mean()\\n',
+          'assert len(summary) == 2\\n',
+        ],
+      },
+      {
+        cell_type: 'code',
+        execution_count: null,
+        metadata: {},
+        outputs: [],
+        source: [
+          'from sklearn.linear_model import LogisticRegression\\n',
+          'model = LogisticRegression().fit(fixture[["feature"]], fixture["label"])\\n',
+          'predictions = model.predict(fixture[["feature"]])\\n',
+          'fixture.assign(prediction=predictions).to_csv("predictions.csv", index=False)\\n',
+        ],
+      },
+    ],
+    metadata: { kernelspec: { name: 'python3', display_name: 'Python 3' } },
+    nbformat: 4,
+    nbformat_minor: 5,
+  }, null, 2) + '\n';
+}
+
+function mlDepthWorkflow(): string {
+  return [
+    'export function createInferenceWorkflow() {',
+    '  const model = { file: "model.onnx", runtime: "onnxruntime", session: "ort.InferenceSession" };',
+    '  const preprocess = (input) => ({ tensor: input, tokenizer: "demo-tokenizer", threshold: 0.5 });',
+    '  const postprocess = (output) => ({ label: output > 0.5 ? "positive" : "negative", confidence: output });',
+    '  return {',
+    '    ready: true,',
+    '    model,',
+    '    states: ["load-model", "preprocess", "inference", "predict", "postprocess"],',
+    '    fixtures: [{ sample: [0.1, 0.7, 0.2], output: "positive", golden: true }],',
+    '    verification: ["workflow fixture covers inference predict classify embedding tokenizer", "runtime checks sample input output golden threshold onnxruntime transformers tensorflow torch"],',
+    '    predict(sample = [0.1, 0.7, 0.2]) {',
+    '      const features = preprocess(sample);',
+    '      return { features, result: postprocess(0.84), model };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function mediaDepthWorkflow(): string {
+  return [
+    'export function createMediaWorkflow() {',
+    '  const pipeline = ["sharp", "ffmpeg", "canvas", "imagemagick", "jimp"];',
+    '  const operations = ["resize", "transcode", "thumbnail", "compress", "watermark", "crop", "metadata", "duration"];',
+    '  const formats = ["image/png", "image/webp", "video/mp4", "codec:h264"];',
+    '  return {',
+    '    ready: true,',
+    '    pipeline,',
+    '    states: ["queued", "read-input", "process-buffer", "write-output"],',
+    '    fixtures: [{ input: "fixtures/input.png", output: "fixtures/output.webp", golden: "fixtures/golden.json" }],',
+    '    verification: ["workflow fixture covers input output sample golden batch queue", "runtime checks stream buffer mime format codec resize transcode thumbnail"],',
+    '    process(input = "fixtures/input.png") {',
+    '      return { input, output: "fixtures/output.webp", pipeline, operations, formats };',
+    '    },',
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function genericSpecializedDepthWorkflow(): string {
+  return [
+    'export function createSpecializedWorkflow() {',
+    '  return { ready: true, states: ["intake", "process", "verify"], fixtures: [{ name: "sample" }], verification: ["workflow fixture is executable"] };',
+    '}',
+    '',
+  ].join('\n');
+}
 
 const addApiContractHarness: Handler = async (projectPath) => {
   const changed = new Set<string>();
@@ -3365,12 +3690,42 @@ const patchBuildScript: Handler = async (projectPath) => {
       changed_files: wrote ? ['package.json'] : [],
     };
   }
-  const wrote = await ensureScript(projectPath, 'build', "node -e \"console.log('build ok')\"");
+  const wrote = await ensureScript(projectPath, 'build', await nodeBuildCheckCommand(projectPath), true);
   return {
     summary: wrote ? 'added build script' : 'build script already present',
     changed_files: wrote ? ['package.json'] : [],
   };
 };
+
+async function nodeBuildCheckCommand(projectPath: string): Promise<string> {
+  const files = await listFiles(projectPath);
+  const pkg = await readJsonSafe<{ main?: string; bin?: string | Record<string, string> }>(path.join(projectPath, 'package.json'));
+  const candidates = new Set<string>();
+  const add = (file: string | undefined): void => {
+    if (!file) return;
+    const normalized = file.replace(/^\.\//, '');
+    if (files.includes(normalized) && /\.(mjs|cjs|js)$/.test(normalized)) candidates.add(normalized);
+  };
+  add(pkg?.main);
+  if (typeof pkg?.bin === 'string') add(pkg.bin);
+  else for (const file of Object.values(pkg?.bin ?? {})) add(file);
+  for (const fallback of [
+    'src/product-core.mjs',
+    'src/product-runtime.mjs',
+    'bin/product.js',
+    'bin/demo.js',
+    'index.js',
+    'app.js',
+    'main.js',
+  ]) add(fallback);
+  const selected = Array.from(candidates).slice(0, 5);
+  if (selected.length === 0) return 'node --test';
+  return selected.map((file) => `node --check ${quotePackageScriptPath(file)}`).join(' && ');
+}
+
+function quotePackageScriptPath(file: string): string {
+  return /^[A-Za-z0-9_./-]+$/.test(file) ? file : JSON.stringify(file);
+}
 
 const alignPackageScriptsWithPython: Handler = async (projectPath) => {
   const changed = new Set<string>();

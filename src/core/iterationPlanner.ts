@@ -812,6 +812,23 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'specialized_surface_shallow_product':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Add specialized surface product workflow',
+        description: f.message,
+        acceptance_criteria: [
+          'detected specialized surface has source-level behavior beyond docs and contract checks',
+          'workflow includes domain fixtures, states or runtime interactions specific to the surface',
+          'tests exercise the specialized workflow without relying on placeholder status checks',
+        ],
+        expected_changed_files: ['src', 'tests/specialized-surface-depth.test.mjs', 'package.json'],
+        verification_commands: ['node --test tests/specialized-surface-depth.test.mjs'],
+        priority: f.severity,
+        status: 'pending',
+      };
     case 'no_ci':
     case 'misaligned_ci':
     case 'ci_ignores_python_constraints':
