@@ -1260,6 +1260,116 @@ describe('gapAnalyzer', () => {
     expect(gap.score.score_gate?.failures.some((f) => f.gate === 'product_maturity')).toBe(true);
   });
 
+  it('does not count generated product status endpoints as real social deduction workflows', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-werewolf-product-status-stubs-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Werewolf Product\n\nA mature 狼人杀 social deduction product.\n' + 'x'.repeat(420));
+    await fs.writeFile(path.join(dir, 'Dockerfile'), 'FROM python:3.11-slim\nCMD ["gunicorn", "wsgi:app"]\n');
+    await fs.writeFile(path.join(dir, 'wsgi.py'), 'from app import app\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: python3 -m pytest -q\n');
+    await fs.writeFile(path.join(dir, 'game.py'), 'from rules import validate_game_modes\nGAME_MODES = {"classic": {"roles": ["werewolf", "seer", "witch", "villager"]}}\nvalidate_game_modes(GAME_MODES)\nclass GameMaster:\n    def winner(self):\n        return "wolves"\n');
+    await fs.writeFile(path.join(dir, 'rules.py'), [
+      'def role_distribution(roles): return {role: roles.count(role) for role in roles}',
+      'def validate_mode_config(mode_id, roles): return {"ok": True, "role_distribution": role_distribution(roles)}',
+      'def validate_game_modes(modes): return {"ok": True, "modes": modes}',
+      'def resolve_vote_result(votes): return {"outcome": "vote"}',
+      'def winner_from_alive_roles(roles): return None',
+      '# night day alive dead kill save check guard winner werewolf seer witch villager',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_rules.py'), [
+      'from rules import resolve_vote_result, validate_mode_config',
+      'def test_rules(): assert resolve_vote_result({})["outcome"] == "vote"',
+      'def test_mode_config_validation_rejects_wolf_majority(): assert validate_mode_config("balanced mode", ["werewolf", "villager"])["ok"]',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'accounts.py'), 'class AccountStore:\n    pass\n# account profile login session password_hash\n');
+    await fs.writeFile(path.join(dir, 'lobby.py'), 'class LobbyManager:\n    pass\n# lobby room matchmaking match_queue ready_check invite party\n');
+    await fs.writeFile(path.join(dir, 'communication.py'), 'class WebSocketPresenceHub:\n    pass\n# websocket voice chat presence\n');
+    await fs.writeFile(path.join(dir, 'moderation.py'), 'def report_player():\n    pass\n# moderation mute block_user ban anti_abuse grief afk\n');
+    await fs.writeFile(path.join(dir, 'ranking.py'), 'class RankedSeasonLeaderboard:\n    pass\n# ranked season leaderboard rating mmr elo division tier\n');
+    await fs.writeFile(path.join(dir, 'history.py'), 'import sqlite3\n# database match_history replay_store\n');
+    await fs.writeFile(path.join(dir, 'roles_catalog.py'), [
+      'ROLE_REGISTRY = {',
+      '    "werewolf": {}, "alpha_wolf": {}, "seer": {}, "witch": {},',
+      '    "hunter": {}, "guard": {}, "medium": {}, "villager": {},',
+      '    "cupid": {}, "thief": {}, "idiot": {}, "wolf_king": {},',
+      '}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'liveops.py'), 'class LiveOpsStore:\n    pass\n# shop skin avatar item cosmetic currency battle pass quest reward track inventory\n');
+    await fs.writeFile(path.join(dir, 'admin.py'), 'class AdminConsole:\n    pass\n# admin metrics prometheus tracing audit analytics dashboard incident rate_limit\n');
+    await fs.writeFile(path.join(dir, 'host_controls.py'), 'class HostControls:\n    pass\n# custom game host controls private room room settings spectator anonymous players\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'from accounts import AccountStore',
+      'from lobby import LobbyManager',
+      'from communication import WebSocketPresenceHub',
+      'from moderation import report_player',
+      'from ranking import RankedSeasonLeaderboard',
+      'from history import sqlite3',
+      'from roles_catalog import ROLE_REGISTRY',
+      'from liveops import LiveOpsStore',
+      'from admin import AdminConsole',
+      'from host_controls import HostControls',
+      'app = Flask(__name__)',
+      'accounts = AccountStore(); lobby = LobbyManager(); hub = WebSocketPresenceHub(); ranked = RankedSeasonLeaderboard(); liveops = LiveOpsStore(); admin = AdminConsole(); hosts = HostControls()',
+      '@app.route("/healthz")',
+      'def healthz(): return jsonify({"status": "ok"})',
+      'def _d2p_product_status(name, enabled=True, **extra):',
+      '    payload = {"workflow": name, "enabled": bool(enabled)}',
+      '    payload.update(extra)',
+      '    return jsonify(payload)',
+      '@app.route("/product/profile")',
+      'def product_profile(): return _d2p_product_status("account_profile", True, profile={"id": "demo_player"})',
+      '@app.route("/product/lobby", methods=["POST"])',
+      'def product_lobby(): return _d2p_product_status("lobby_room_matchmaking", True, room={"id": "demo_room"})',
+      '@app.route("/product/chat/presence")',
+      'def product_presence(): return _d2p_product_status("websocket_chat_voice_presence", True, presence=["demo_player"])',
+      '@app.route("/product/moderation/report", methods=["POST"])',
+      'def product_moderation(): return _d2p_product_status("moderation_report_block_mute", True, report={"status": "open"})',
+      '@app.route("/product/ranked/leaderboard")',
+      'def product_ranked(): return _d2p_product_status("ranked_season_leaderboard", True, leaderboard=[["demo_player", 1000]])',
+      '@app.route("/product/history/replay")',
+      'def product_history(): return _d2p_product_status("match_history_replay_store", True, replay=[{"phase": "night"}])',
+      '@app.route("/product/roles/catalog")',
+      'def product_roles(): return _d2p_product_status("role_registry_mode_catalog", True, roles=list(ROLE_REGISTRY))',
+      '@app.route("/product/liveops/inventory")',
+      'def product_liveops(): return _d2p_product_status("liveops_shop_inventory_rewards", True, inventory={"currency": 0})',
+      '@app.route("/product/admin/metrics")',
+      'def product_admin(): return _d2p_product_status("admin_metrics_audit_rate_limit", True, metrics={"active_rooms": 0})',
+      '@app.route("/product/host/room-settings", methods=["POST"])',
+      'def product_host(): return _d2p_product_status("host_controls_private_room_settings", True, settings={"private_room": True})',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'tests', 'test_product_integration.py'), [
+      'from app import app',
+      'def test_social_product_workflow_routes_are_reachable():',
+      '    client = app.test_client()',
+      '    assert client.get("/product/profile").status_code == 200',
+      '    assert client.post("/product/lobby").status_code == 200',
+      '    assert client.get("/product/chat/presence").status_code == 200',
+      '    assert client.post("/product/moderation/report").status_code == 200',
+      'def test_social_product_workflows_return_enabled_contracts():',
+      '    client = app.test_client()',
+      '    payload = client.get("/product/profile").get_json()',
+      '    assert payload["workflow"] == "account_profile"',
+      '    assert "enabled" in payload',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(gap.product_maturity?.level).not.toBe('market_ready');
+    expect(gap.product_maturity?.score).toBeLessThanOrEqual(60);
+    expect(gap.product_maturity?.missing_capabilities).toContain('User-facing product workflows');
+    expect(gap.product_maturity?.missing_capabilities).toContain('End-to-end product workflow verification');
+    expect(categories).toContain('below_social_deduction_market_parity');
+    expect(gap.score.score_gate?.failures.some((f) => f.gate === 'product_maturity')).toBe(true);
+  });
+
   it('counts runtime-integrated social deduction product workflows as market ready', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-werewolf-integrated-backbone-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -1771,6 +1881,99 @@ describe('gapAnalyzer', () => {
     expect(sceneCategories).toContain('missing_3d_scene_contract_harness');
     expect(mlCategories).toContain('missing_ml_model_contract_harness');
     expect(mediaCategories).toContain('missing_media_pipeline_contract_harness');
+  });
+
+  it('flags specialized product shells that have harnesses but shallow domain behavior', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-shallow-game-product-shell-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Game Product\n\n## Install\n\nnpm install\n\n## Usage\n\nnpm start\n\n' + 'This project claims to be a productized game baseline. '.repeat(12));
+    await fs.writeFile(path.join(dir, '.env.example'), 'NODE_ENV=production\n');
+    await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: npm test\n      - run: npm run build\n');
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'shallow-game-product',
+      type: 'module',
+      scripts: {
+        test: 'node --test tests/product-core.test.mjs',
+        build: 'node --check src/game.js',
+        start: 'vite',
+        'surface:contract-check': 'node scripts/surface-contract-check.mjs',
+        'game:contract-check': 'node scripts/game-contract-check.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+      dependencies: { phaser: '^3.90.0', vite: '^6.0.0' },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'index.html'), '<main id="game"></main><script type="module" src="/src/game.js"></script>\n');
+    await fs.writeFile(path.join(dir, 'src', 'game.js'), [
+      'const config = {',
+      '  type: Phaser.AUTO,',
+      '  width: 800,',
+      '  height: 480,',
+      '  scene: {',
+      '    create() { this.add.text(20, 20, "Game demo"); }',
+      '  }',
+      '};',
+      'new Phaser.Game(config);',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["game_demo"], workflows: [{ id: "game", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n\nA tiny product core exists.\n');
+    await fs.writeFile(path.join(dir, 'docs', 'productization-surface-map.md'), '# Surface Map\n\n- game_demo\n');
+    await fs.writeFile(path.join(dir, 'docs', 'game-contract.md'), '# Game Contract\n\nRuntime contract for Phaser.\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'surface-contract-check.mjs'), 'console.log(JSON.stringify({ ok: true }))\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'game-contract-check.mjs'), 'console.log(JSON.stringify({ ok: true }))\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('specialized_surface_shallow_product');
+    expect(gap.score.score_gate?.failures.some((f) => f.gate === 'gap')).toBe(true);
+  });
+
+  it('flags notebook product shells that only wrap a trivial notebook cell', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-shallow-notebook-product-shell-'));
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Notebook Product\n\n## Usage\n\nRun `npm test`.\n\n' + 'This claims a repeatable notebook product baseline. '.repeat(12));
+    await fs.writeFile(path.join(dir, '.env.example'), 'NODE_ENV=production\n');
+    await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'name: CI\njobs:\n  test:\n    steps:\n      - run: npm test\n');
+    await fs.writeFile(path.join(dir, 'analysis.ipynb'), JSON.stringify({
+      cells: [{ cell_type: 'code', execution_count: null, metadata: {}, outputs: [], source: ["print('demo analysis')"] }],
+      metadata: {},
+      nbformat: 4,
+      nbformat_minor: 5,
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'shallow-notebook-product',
+      type: 'module',
+      scripts: {
+        test: 'node --test',
+        build: 'node --check src/product-core.mjs',
+        'surface:contract-check': 'node scripts/surface-contract-check.mjs',
+        'notebook:contract-check': 'node scripts/notebook-contract-check.mjs',
+        'product:core-check': 'node --test tests/product-core.test.mjs',
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(dir, 'src', 'product-core.mjs'), 'export function createProductCore() { return { capabilities: ["notebook"], workflows: [{ id: "notebook", status: "implemented" }] }; }\n');
+    await fs.writeFile(path.join(dir, 'tests', 'product-core.test.mjs'), 'import test from "node:test"; import assert from "node:assert/strict"; import { createProductCore } from "../src/product-core.mjs"; test("product core", () => assert.ok(createProductCore().workflows.length));\n');
+    await fs.writeFile(path.join(dir, 'tests', 'smoke.test.mjs'), 'import test from "node:test"; test("smoke", () => {});\n');
+    await fs.writeFile(path.join(dir, 'docs', 'product-core.md'), '# Product Core\n');
+    await fs.writeFile(path.join(dir, 'docs', 'productization-surface-map.md'), '# Surface Map\n- notebook\n');
+    await fs.writeFile(path.join(dir, 'docs', 'notebook-contract.md'), '# Notebook Contract\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'surface-contract-check.mjs'), 'console.log(JSON.stringify({ ok: true }))\n');
+    await fs.writeFile(path.join(dir, 'scripts', 'notebook-contract-check.mjs'), 'console.log(JSON.stringify({ ok: true }))\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    expect(gap.findings.map((f) => f.category)).toContain('specialized_surface_shallow_product');
   });
 
   it('lets the analyzer audit suppress unsupported agent misjudgments before planning', async () => {

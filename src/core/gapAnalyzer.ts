@@ -358,6 +358,7 @@ export async function analyzeGaps(
     );
   }
   const deliverySurfaces = detectDeliverySurfaces({ snapshot, files, pkg, sourceText: projectSurfaceText });
+  const deliverySurfaceIds = deliverySurfaces.map((surface) => surface.id);
   if (requiresSurfaceContractMatrix(deliverySurfaces) && !hasDemoSurfaceContractMatrix(files, scripts)) {
     findings.push(
       finding(
@@ -467,7 +468,7 @@ export async function analyzeGaps(
     );
   }
   if (
-    needsProductCoreSpine(deliverySurfaces.map((surface) => surface.id)) &&
+    needsProductCoreSpine(deliverySurfaceIds) &&
     hasAnyProductizationHarness(files, scripts) &&
     !hasProductCoreSpine(files, scripts)
   ) {
@@ -483,10 +484,10 @@ export async function analyzeGaps(
     );
   }
   if (
-    needsRunnableProductEntry(deliverySurfaces.map((surface) => surface.id)) &&
+    needsRunnableProductEntry(deliverySurfaceIds) &&
     hasAnyProductizationHarness(files, scripts) &&
     hasProductCoreSpine(files, scripts) &&
-    !hasRunnableProductEntry(deliverySurfaces.map((surface) => surface.id), files, scripts)
+    !hasRunnableProductEntry(deliverySurfaceIds, files, scripts)
   ) {
     findings.push(
       finding(
@@ -496,6 +497,27 @@ export async function analyzeGaps(
         'A visual, mobile or desktop product cannot be treated as complete if users can only run contract checks and tests.',
         'Add a real runtime entry, start script and runtime-entry check for the detected product surface.',
         ['package.json', 'scripts/product-runtime-check.mjs', 'index.html', 'App.js'],
+      ),
+    );
+  }
+  if (
+    needsSpecializedSurfaceDepth(deliverySurfaceIds) &&
+    hasAnyProductizationHarness(files, scripts) &&
+    hasProductCoreSpine(files, scripts) &&
+    (
+      !needsRunnableProductEntry(deliverySurfaceIds) ||
+      hasRunnableProductEntry(deliverySurfaceIds, files, scripts)
+    ) &&
+    !(await hasSpecializedSurfaceDomainDepth(snapshot.project_path, deliverySurfaceIds, files))
+  ) {
+    findings.push(
+      finding(
+        'specialized_surface_shallow_product',
+        'high',
+        'Specialized product surface is still a shallow demo shell',
+        'Contract harnesses and product-core scaffolds prove boundaries, but they do not prove domain behavior. A product needs real gameplay, scene, mobile, desktop, model, media, notebook or extension workflows that users can exercise.',
+        'Add behavior-level product flows, fixtures or browser/runtime checks for the detected specialized surface instead of relying on placeholder runtime entries.',
+        ['src', 'App.js', 'electron.js', 'tests', 'scripts/product-runtime-check.mjs'],
       ),
     );
   }
@@ -768,7 +790,6 @@ export async function analyzeGaps(
       );
     }
   }
-  const deliverySurfaceIds = deliverySurfaces.map((surface) => surface.id);
   const hasNonWebProductSurface = deliverySurfaceIds.some((surface) => [
     'game_demo',
     'three_d_scene',
@@ -1344,6 +1365,92 @@ function needsRunnableProductEntry(surfaceIds: string[]): boolean {
     'ml_model',
     'media_pipeline',
   ].includes(surface));
+}
+
+function needsSpecializedSurfaceDepth(surfaceIds: string[]): boolean {
+  return surfaceIds.some((surface) => [
+    'browser_extension',
+    'notebook',
+    'mobile_app',
+    'desktop_app',
+    'game_demo',
+    'three_d_scene',
+    'ml_model',
+    'media_pipeline',
+  ].includes(surface));
+}
+
+async function hasSpecializedSurfaceDomainDepth(root: string, surfaceIds: string[], files: string[]): Promise<boolean> {
+  const sourceFiles = files.filter((file) =>
+    !/(^|\/)(docs?|scripts?|tests?|\.github|node_modules|dist|build|coverage)\//.test(file) &&
+    !/(^|\/)product[-_]core\.(mjs|js|ts|py)$/.test(file) &&
+    (
+      /^(index\.html|popup\.html|manifest\.json|app\.json|analysis\.ipynb|App\.(js|jsx|ts|tsx)|electron\.(js|mjs|cjs|ts))$/.test(file) ||
+      /^(src|app|pages|components|static|assets|bin)\//.test(file)
+    ) &&
+    /\.(html|json|ipynb|mjs|js|ts|tsx|jsx|py|vue|svelte|css)$/.test(file)
+  );
+  const testFiles = files.filter((file) => /(^|\/)tests?\/.*\.(mjs|js|ts|tsx|jsx|py)$/.test(file));
+  const sourceText = (await Promise.all(sourceFiles.slice(0, 120).map((file) => readTextSafe(path.join(root, file)))))
+    .filter((text): text is string => Boolean(text))
+    .join('\n')
+    .toLowerCase();
+  const testText = (await Promise.all(testFiles.slice(0, 80).map((file) => readTextSafe(path.join(root, file)))))
+    .filter((text): text is string => Boolean(text))
+    .join('\n')
+    .toLowerCase();
+  const hasTestsBeyondProductCore = testFiles.some((file) => !/product[-_]core/.test(file)) ||
+    /\b(click|keyboard|pointer|render|canvas|fixture|sample|snapshot|navigation|ipc|message|predict|resize|workflow)\b/.test(testText);
+  const signalCount = (patterns: RegExp[]): number => countSignals(sourceText, patterns);
+  const hasEnoughSource = sourceText.replace(/\s+/g, '').length >= 500;
+
+  if (surfaceIds.includes('game_demo')) {
+    return hasEnoughSource &&
+      signalCount([/\b(preload|update|physics|collision|collider|overlap)\b/, /\b(input|keyboard|pointer|controls?)\b/, /\b(player|enemy|npc|sprite|animation)\b/, /\b(score|level|health|lives|timer|state)\b/, /\b(scene\.start|tilemap|spawn|win|lose)\b/]) >= 3 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('three_d_scene')) {
+    return hasEnoughSource &&
+      signalCount([/\b(light|ambientlight|directionallight|pointlight)\b/, /\b(mesh|geometry|material|texture)\b/, /\b(orbitcontrols|pointerlockcontrols|raycaster|controls)\b/, /\b(gltfloader|objloader|model|asset|loader)\b/, /\b(resize|pixelratio|animationmixer|camera\.position)\b/]) >= 3 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('mobile_app')) {
+    return hasEnoughSource &&
+      signalCount([/\b(navigation|router|screen|stack)\b/, /\b(pressable|touchable|onpress|textinput|button)\b/, /\b(usestate|usereducer|zustand|redux|context)\b/, /\b(flatlist|sectionlist|scrollview|refreshcontrol)\b/, /\b(accessibilitylabel|accessibilityrole|asyncstorage|securestore)\b/]) >= 3 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('desktop_app')) {
+    return hasEnoughSource &&
+      /\bbrowserwindow\b/.test(sourceText) &&
+      /\b(contextisolation|sandbox|preload|contextbridge)\b/.test(sourceText) &&
+      signalCount([/\b(ipcmain|ipcrenderer|invoke|handle)\b/, /\b(menu|tray|dialog|shortcut|protocol)\b/, /\b(loadfile|loadurl|renderer|preload)\b/]) >= 2 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('browser_extension')) {
+    return hasEnoughSource &&
+      signalCount([/\b(chrome\.runtime|browser\.runtime|chrome\.tabs|browser\.tabs)\b/, /\b(content_scripts|background|service_worker|permissions)\b/, /\b(message|sendmessage|onmessage|storage\.local)\b/, /\b(popup|options|side_panel|action)\b/]) >= 3 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('notebook')) {
+    const notebookText = sourceText;
+    const codeCellCount = (notebookText.match(/"cell_type"\s*:\s*"code"/g) ?? []).length;
+    return codeCellCount >= 2 &&
+      /\b(read_csv|dataframe|pandas|pd\.|numpy|np\.|sklearn|fit\(|predict\(|groupby|plot|assert|to_csv|sql|requests|http|fixture|sample|golden)\b/.test(notebookText) &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('ml_model')) {
+    const modelFiles = files.filter((file) => /\.(onnx|pt|pth|safetensors|tflite|pkl|joblib)$/.test(file));
+    const nonPlaceholderModel = modelFiles.some((file) => !/placeholder|demo/i.test(file));
+    return nonPlaceholderModel &&
+      signalCount([/\b(inference|predict|classify|embedding|tokenizer|preprocess|postprocess)\b/, /\b(sample|fixture|input|output|golden|threshold)\b/, /\b(onnxruntime|transformers|tensorflow|torch|ort\.inferencesession)\b/]) >= 2 &&
+      hasTestsBeyondProductCore;
+  }
+  if (surfaceIds.includes('media_pipeline')) {
+    return hasEnoughSource &&
+      signalCount([/\b(sharp|ffmpeg|canvas|imagemagick|jimp|exif|metadata)\b/, /\b(resize|transcode|thumbnail|compress|watermark|crop|duration)\b/, /\b(input|output|fixture|sample|golden|batch|queue)\b/, /\b(stream|buffer|mime|format|codec)\b/]) >= 3 &&
+      hasTestsBeyondProductCore;
+  }
+  return true;
 }
 
 function hasRunnableProductEntry(surfaceIds: string[], files: string[], scripts: Record<string, string>): boolean {
@@ -2130,7 +2237,8 @@ async function assessSocialDeductionProductMaturity(
     ),
   ];
   const met = capabilities.filter((c) => c.met).length;
-  const score = Math.round((met / capabilities.length) * 100);
+  const rawScore = Math.round((met / capabilities.length) * 100);
+  const score = integration.has_generated_status_stub ? Math.min(rawScore, 60) : rawScore;
   const missing = capabilities.filter((c) => !c.met && c.required_for_market_parity).map((c) => c.label);
   const level = productMaturityLevel(score, missing.length);
   return {
@@ -2138,7 +2246,9 @@ async function assessSocialDeductionProductMaturity(
     target_market: 'mature online werewolf/social deduction product',
     score,
     level,
-    summary: `Detected ${met}/${capabilities.length} market-parity capabilities for a social deduction product.`,
+    summary: integration.has_generated_status_stub
+      ? `Detected ${met}/${capabilities.length} market-parity capability signals, capped at ${score}/100 because user-facing workflows are generated status stubs rather than behavior-level product flows.`
+      : `Detected ${met}/${capabilities.length} market-parity capabilities for a social deduction product.`,
     capabilities,
     missing_capabilities: missing,
     references: [
@@ -2151,6 +2261,7 @@ async function assessSocialDeductionProductMaturity(
 
 interface SocialDeductionRuntimeIntegrationAssessment {
   has_backbone_modules: boolean;
+  has_generated_status_stub: boolean;
   has_runtime_integration: boolean;
   has_user_facing_workflows: boolean;
   has_end_to_end_verification: boolean;
@@ -2190,17 +2301,21 @@ async function assessSocialDeductionRuntimeIntegration(
   )).filter((text): text is string => Boolean(text)).join('\n').toLowerCase();
 
   const hasBackboneModules = backboneModules.length > 0;
+  const hasGeneratedStatusStub = hasGeneratedSocialProductStatusStub(runtimeBlob);
+  const hasShallowStatusVerification = hasGeneratedStatusStub && hasShallowSocialProductStatusTest(testBlob);
   const hasRuntimeIntegration =
     socialProductRuntimeSignalCount(runtimeBlob) >= 3 ||
     /\b(from|import)\s+(accounts|lobby|communication|moderation|ranking|history|roles_catalog|liveops|admin|host_controls)\b/.test(runtimeBlob) ||
     /\b(accountstore|lobbymanager|websocketpresencehub|moderationlog|rankedseasonleaderboard|sqlitematchhistory|liveopsstore|adminconsole|hostcontrols)\b/.test(runtimeBlob);
-  const hasUserFacingWorkflows = socialProductRouteSignalCount(runtimeBlob) >= 4;
+  const hasUserFacingWorkflows = !hasGeneratedStatusStub && socialProductRouteSignalCount(runtimeBlob) >= 4;
   const hasEndToEndVerification =
+    !hasShallowStatusVerification &&
     /\b(test_client|client\.(get|post|put|delete)|page\.goto|fetch\()/.test(testBlob) &&
     socialProductRouteSignalCount(testBlob) >= 3;
 
   return {
     has_backbone_modules: hasBackboneModules,
+    has_generated_status_stub: hasGeneratedStatusStub,
     has_runtime_integration: hasRuntimeIntegration,
     has_user_facing_workflows: hasUserFacingWorkflows,
     has_end_to_end_verification: hasEndToEndVerification,
@@ -2210,6 +2325,24 @@ async function assessSocialDeductionRuntimeIntegration(
       ...testFiles.filter((file) => /test_(app|product|e2e|ui|workflow)|\.(spec|test)\./.test(file)),
     ])).slice(0, 16),
   };
+}
+
+function hasGeneratedSocialProductStatusStub(text: string): boolean {
+  return (
+    /_d2p_product_status|demo2project:\s*social product runtime integration/.test(text) ||
+    (/["'`]\/product\//.test(text) &&
+      /\bworkflow\b/.test(text) &&
+      /\benabled\b/.test(text) &&
+      /\b(demo_player|demo_room|return\s+_d2p_product_status)\b/.test(text))
+  );
+}
+
+function hasShallowSocialProductStatusTest(text: string): boolean {
+  return (
+    /\bstatus_code\s*==\s*200\b/.test(text) &&
+    (/\bworkflow\b/.test(text) || /\benabled\b/.test(text)) &&
+    /["'`]\/product\//.test(text)
+  );
 }
 
 function socialProductRuntimeSignalCount(text: string): number {
