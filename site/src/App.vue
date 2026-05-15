@@ -79,13 +79,13 @@
           <article>
             <h2>What it is today</h2>
             <p>
-              The beta runs locally against a repository you control. It analyzes project structure, detects delivery surfaces, researches market expectations when explicitly allowed, plans small verified tasks, runs provider-backed executors, repairs failed verification first and stores evidence under <code>.demo2project</code>. It now distinguishes agent-facing simulation products from human multiplayer products, so a multi-agent werewolf theater is evaluated against model configuration, rules, replay, evaluation and observability rather than being forced into an account-and-matchmaking roadmap.
+              The beta runs locally against a repository you control. It analyzes project structure, detects delivery surfaces, researches market expectations when explicitly allowed, plans verified task batches, runs provider-backed executors, repairs failed verification first and stores evidence under <code>.demo2project</code>. It now distinguishes agent-facing simulation products from human multiplayer products, so a multi-agent werewolf theater is evaluated against model configuration, rules, replay, evaluation and observability rather than being forced into an account-and-matchmaking roadmap.
             </p>
           </article>
           <article>
             <h2>What we do not claim yet</h2>
             <p>
-              MatrixOmnix is not yet a hosted upload-and-return service, and a high internal score must not replace human review. The current priority is making the scoring stricter: source-cited market research must produce real capabilities, provider output must be parseable and every product-ready claim must survive tests, builds and gap gates.
+              MatrixOmnix is not yet a hosted upload-and-return service, and a high internal score must not replace human review. The current priority is making the scoring stricter and faster: source-cited market research must produce real capabilities, provider output must be parseable, every product-ready claim must survive tests, builds and gap gates, and mechanical closeout work should not burn model time.
             </p>
           </article>
           <article>
@@ -100,7 +100,7 @@
           <article>
             <h2>Current state</h2>
             <p>
-              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. Live MiniMax runs on an agent-facing werewolf demo validated domain-aware research, deterministic Flask deployment scaffolding, CI constraint checks, player-supplied model settings and evidence-first repair of stale API tests.
+              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. The latest live MiniMax-M2.7-highspeed run on a restored agent-facing werewolf demo reached a 97/100 production-ready baseline with zero open findings and 33 passing pytest cases in four iterations. That run validated domain-aware research, adaptive six-task batches, deterministic Flask deployment scaffolding, CI constraint checks, player-supplied model settings and advisory skip logic for final mechanical closeout.
             </p>
           </article>
           <article>
@@ -125,7 +125,7 @@
           <article class="usage-card">
             <h2>Beta workflow</h2>
             <p>
-              Install the repo, point MatrixOmnix at a demo project, run analysis and gap checks, then let controlled iterations make scoped improvements with verification evidence. For LLM or agent demos, enable web research so MatrixOmnix can classify the product premise before planning.
+              Install the repo, point MatrixOmnix at a demo project, run analysis and gap checks, then let controlled iterations make scoped improvements with verification evidence. For LLM or agent demos, enable web research and advisory agents so MatrixOmnix can classify the product premise, compare source-cited market expectations and avoid forcing unrelated features into the project.
             </p>
             <code>pnpm install && pnpm build</code>
             <code>pnpm matrixomnix doctor</code>
@@ -134,13 +134,13 @@
 
           <ol class="usage-steps">
             <li><strong>Analyze</strong><span>Detect runtime, dependencies, entrypoints, UI/API/CLI/data/worker surfaces, secrets risk and missing project contracts.</span></li>
-            <li><strong>Plan</strong><span>Convert gaps into scoped work with acceptance checks, fallback paths and evidence requirements.</span></li>
+            <li><strong>Plan</strong><span>Convert gaps into scoped work with acceptance checks, fallback paths and evidence requirements; broad deterministic backlogs can be batched more aggressively.</span></li>
             <li><strong>Iterate</strong><span>Run one or more controlled executor rounds, then inspect generated reports before trusting the result.</span></li>
             <li><strong>Verify</strong><span>Run <code>matrixomnix gap --project ./demo</code>; by default it executes detected tests/builds and caps the score when evidence is red.</span></li>
           </ol>
         </section>
 
-        <code class="command-strip">matrixomnix iterate --project ./demo --provider minimax --web --advisory-agents --max-iterations 2</code>
+        <code class="command-strip">matrixomnix iterate --project ./demo --provider minimax --web --advisory-agents --max-iterations 4</code>
       </section>
 
       <section v-else class="content-page contact-page" id="contact">
