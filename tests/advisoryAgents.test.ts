@@ -270,6 +270,60 @@ describe('model-backed advisory agents', () => {
     expect(plan.advisory_focus.filter((focus) => focus.includes('Add deployment section'))).toHaveLength(1);
   });
 
+  it('planner treats operational docs as covering advisory architecture and operations doc subtasks', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-ops-docs-dedupe-'));
+    const gap = gapReport(dir);
+    gap.findings = [{
+      id: 'gap-ops-docs',
+      category: 'missing_operational_docs',
+      severity: 'medium',
+      message: 'Missing operational documentation',
+      why_it_matters: 'Production operators need startup, deployment and rollback docs.',
+      suggested_fix: 'Add architecture and operations docs.',
+      related_files: ['docs/architecture.md', 'docs/operations.md'],
+    }];
+    gap.advisory_reports = [{
+      schema_version: 1,
+      generated_at: new Date(0).toISOString(),
+      role: 'reviewer_critic',
+      provider: 'mock-advisory',
+      model: 'mock',
+      gate_policy: 'advisory agents cannot mark product readiness; verifier and scorer remain authoritative',
+      findings: [],
+      task_proposals: [
+        {
+          title: 'Create docs/architecture.md',
+          description: 'Create component and data-flow architecture docs.',
+          acceptance_criteria: ['architecture docs exist'],
+          expected_changed_files: ['docs/architecture.md'],
+          verification_commands: ['test -s docs/architecture.md'],
+          priority: 'medium',
+          confidence: 'medium',
+          source_urls: ['https://example.com/architecture'],
+        },
+        {
+          title: 'Create docs/operations.md',
+          description: 'Create startup and deployment operations docs.',
+          acceptance_criteria: ['operations docs exist'],
+          expected_changed_files: ['docs/operations.md'],
+          verification_commands: ['test -s docs/operations.md'],
+          priority: 'medium',
+          confidence: 'medium',
+          source_urls: ['https://example.com/operations'],
+        },
+      ],
+      risks: [],
+      raw_summary: 'Operational docs are needed.',
+    }];
+
+    const plan = planIteration(gap, 'make ops docs product-grade', 'iter_advisory_ops_dedupe');
+
+    expect(plan.tasks.map((task) => task.title)).toContain('Add operational documentation');
+    expect(plan.tasks.map((task) => task.title)).not.toContain('Create docs/architecture.md');
+    expect(plan.tasks.map((task) => task.title)).not.toContain('Create docs/operations.md');
+    expect(plan.advisory_focus).toEqual([]);
+  });
+
   it('planner skips duplicate advisory model-config work and schedules replay evaluation next', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-plan-dedupe-'));
     const gap = gapReport(dir);

@@ -45,6 +45,7 @@ export function planIteration(
     });
   const tasks: AgentTask[] = [];
   const selectedFindings: typeof sortedFindings = [];
+  const selectedAdvisoryTasks: AgentTask[] = [];
   const seenTaskKeys = new Set<string>();
   const advisoryTasks = buildAdvisoryTasks(gapReport.advisory_reports ?? [], iterationId, snapshot.project_path);
   const maxFindingTasks = advisoryTasks.length > 0 ? MAX_TASKS_PER_ITERATION - 1 : MAX_TASKS_PER_ITERATION;
@@ -70,6 +71,7 @@ export function planIteration(
     if (seenTaskKeys.has(key)) continue;
     seenTaskKeys.add(key);
     tasks.push(advisoryTask);
+    selectedAdvisoryTasks.push(advisoryTask);
     if (tasks.length >= MAX_TASKS_PER_ITERATION) break;
   }
   applyQaFocus(tasks, qaFocusCases);
@@ -101,7 +103,7 @@ export function planIteration(
       'safety_violation_detected',
       'user_requested_stop',
     ],
-    advisory_focus: advisoryTasks.map((task) => task.description.match(/Advisory role: ([^\n]+)/)?.[1] ?? task.title),
+    advisory_focus: selectedAdvisoryTasks.map((task) => task.description.match(/Advisory role: ([^\n]+)/)?.[1] ?? task.title),
   };
 }
 
@@ -254,6 +256,15 @@ function taskFamily(title: string): string | null {
     (/deployment/.test(normalized) && /readme/.test(normalized))
   ) {
     return 'docs:deployment';
+  }
+  if (
+    /^add operational documentation$/.test(normalized) ||
+    /^create docs\/architecture\.md$/.test(normalized) ||
+    /^create docs\/operations\.md$/.test(normalized) ||
+    (/docs\/(architecture|operations)\.md/.test(normalized)) ||
+    (/operational|operations|architecture/.test(normalized) && /docs?/.test(normalized))
+  ) {
+    return 'docs:operations';
   }
   return null;
 }

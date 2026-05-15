@@ -131,6 +131,9 @@ function chooseHandler(task: AgentTask, targets: string[]): Handler | null {
   if (/add operational documentation/i.test(task.title)) {
     return addOperationalDocumentation;
   }
+  if (targets.some((t) => t === 'docs/architecture.md' || t === 'docs/operations.md') && /architecture|operations|operational|startup|deploy|health|environment|configuration/i.test(taskText)) {
+    return addOperationalDocumentation;
+  }
   if (/add social deduction rules engine/i.test(task.title)) {
     return addSocialDeductionRulesEngine;
   }

@@ -153,6 +153,39 @@ describe('MiniMaxProvider', () => {
     expect(await fs.readFile(path.join(dir, 'README.md'), 'utf8')).toContain('Public Demo Deployment');
   });
 
+  it('routes mechanical operational docs tasks through deterministic docs', async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("demo")\n');
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response('{}', { status: 500 });
+    }) as typeof fetch;
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+
+    const result = await provider.runTask(
+      {
+        id: 't_operational_docs',
+        iteration_id: 'i_minimax',
+        assigned_to: 'executor',
+        title: 'Create docs/architecture.md',
+        description: 'Create architecture and operations docs covering deployment, health checks and configuration.',
+        acceptance_criteria: ['architecture docs exist'],
+        expected_changed_files: ['docs/architecture.md'],
+        verification_commands: ['test -s docs/architecture.md'],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'i_minimax', recent_events: [] },
+    );
+
+    expect(calls).toBe(0);
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('docs/architecture.md');
+    expect(result.changed_files).toContain('docs/operations.md');
+    expect(result.risks).toContain('deterministic_first_mechanical_operational_docs');
+  });
+
   it('includes recent verification failures and referenced files in the prompt', async () => {
     const dir = await tmp();
     await fs.writeFile(path.join(dir, 'prompts.py'), 'PROMPTS_SENTINEL = True\n');

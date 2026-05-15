@@ -317,6 +317,9 @@ function deterministicFirstTaskReason(task: AgentTask, ctx: AgentContext): strin
   if (!isRepair && isMechanicalDeploymentDocsTask(task, plannedText)) {
     return 'deterministic_first_mechanical_deployment_docs';
   }
+  if (!isRepair && isMechanicalOperationalDocsTask(task, plannedText)) {
+    return 'deterministic_first_mechanical_operational_docs';
+  }
   if (
     !isRepair &&
     (
@@ -376,6 +379,16 @@ function isMechanicalDeploymentDocsTask(task: AgentTask, text: string): boolean 
   const touchesReadme = targets.includes('readme.md');
   return touchesReadme &&
     /deployment|docker|gunicorn|healthz|public demo/i.test(text);
+}
+
+function isMechanicalOperationalDocsTask(task: AgentTask, text: string): boolean {
+  const targets = task.expected_changed_files.map((file) => file.toLowerCase());
+  const touchesOperationalDocs = targets.some((file) =>
+    file === 'docs/architecture.md' ||
+    file === 'docs/operations.md'
+  );
+  return touchesOperationalDocs &&
+    /architecture|operations|operational|startup|deploy|health|environment|configuration/i.test(text);
 }
 
 async function invokeMiniMax(
