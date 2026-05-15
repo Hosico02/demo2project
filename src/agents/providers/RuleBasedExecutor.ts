@@ -1399,6 +1399,14 @@ const repairFailingProjectVerification: Handler = async (projectPath) => {
   const backgroundLlmTestRepair = await repairBackgroundLlmAuthFailureInApiTests(projectPath);
   if (backgroundLlmTestRepair.changed_files.length > 0) return backgroundLlmTestRepair;
 
+  const annotationRepair = await ensureFutureAnnotationsForPythonSources(projectPath);
+  if (annotationRepair.length > 0) {
+    return {
+      summary: 'repaired Python runtime annotation compatibility',
+      changed_files: annotationRepair,
+    };
+  }
+
   const appText = (await readTextSafe(path.join(projectPath, 'app.py'))) ?? '';
   if (/\bfrom\s+flask\s+import\b|\bFlask\s*\(/.test(appText)) {
     return hardenFlaskRuntimeControls(projectPath);

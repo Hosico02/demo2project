@@ -95,12 +95,19 @@ function capabilitySpecs(domain: MarketResearchDomain): CapabilitySpec[] {
         spec('onboarding_error_states', 'Onboarding, loading and error states', 'Users can understand first use and recover from loading, empty and error conditions.', 'required', [/onboard|loading|empty state|error state|retry|fallback|first[- ]use/i], ['loading', 'empty', 'error', 'retry', 'onboarding']),
         spec('trust_and_conversion_surface', 'Trust and conversion surface', 'Public product pages expose credible proof, contact paths, pricing or service boundaries.', 'recommended', [/trust|testimonial|case stud|pricing|contact|support|service|security/i], ['contact', 'pricing', 'support', 'security', 'case study']),
       ];
+    case 'agent_social_deduction_theater':
+      return [
+        spec('agent_model_configuration', 'Agent model and provider configuration', 'Each run can select provider, model, endpoint and credentials without requiring server-wide shared keys.', 'required', [/model|provider|openai compatible|api key|endpoint|llm configuration|agent configuration|multi-agent/i], ['provider', 'model', 'api_key', 'base_url', 'public_provider_config']),
+        spec('simulation_replay_observability', 'Simulation replay and observability', 'Agent matches emit durable event timelines, replays, logs or metrics so observers can inspect decisions and failures.', 'required', [/replay|timeline|event log|observability|metrics|trace|audit|debug|transcript/i], ['replay', 'event log', 'metrics', 'trace', 'transcript', 'match_history']),
+        spec('evaluation_harness', 'Agent evaluation harness', 'The product can run repeated seeded simulations and compare outcomes, reasoning quality or policy regressions.', 'recommended', [/evaluation|benchmark|simulation|seed|batch|regression|experiment|compare/i], ['evaluation', 'benchmark', 'simulation', 'seed', 'batch', 'regression']),
+        spec('deterministic_rules_and_guardrails', 'Deterministic rules and agent guardrails', 'Core rules are testable and prompts include role secrecy, policy and invalid-action guardrails.', 'required', [/deterministic|rules|guardrail|role secrecy|invalid action|policy|prompt/i], ['rules.py', 'validate_mode_config', 'role secrecy', 'invalid action', 'guardrail']),
+      ];
     case 'social_deduction_game':
       return [
-        spec('account_identity', 'Account identity and player profiles', 'Players have durable identity, profile and session state.', 'required', [/account|profile|login|user|identity|session/i], ['account', 'profile', 'login', 'session', 'jwt']),
-        spec('lobby_matchmaking', 'Lobby, room and matchmaking lifecycle', 'Players can create rooms, match with others and ready up before play starts.', 'required', [/lobby|room|matchmaking|friends|invite|party|ready/i], ['lobby', 'room', 'matchmaking', 'invite', 'ready_check']),
+        spec('account_identity', 'Account identity and player profiles', 'Players have durable identity, profile and session state.', 'required', [/account|profile|login|user|identity|session|join\s+\d+.*players|millions? of players|wolvesville/i], ['account', 'profile', 'login', 'session', 'jwt']),
+        spec('lobby_matchmaking', 'Lobby, room and matchmaking lifecycle', 'Players can create rooms, match with others and ready up before play starts.', 'required', [/lobby|room|matchmaking|friends|invite|party|ready|online|wolvesville|play .*werewolf/i], ['lobby', 'room', 'matchmaking', 'invite', 'ready_check']),
         spec('moderation_ranked_progression', 'Moderation, ranked and progression systems', 'The product handles abuse controls and long-term competitive progression.', 'recommended', [/moderation|report|mute|ban|ranked|season|leaderboard|elo|mmr|progression/i], ['moderation', 'report', 'mute', 'ranked', 'leaderboard', 'season', 'mmr']),
-        spec('realtime_communication', 'Real-time communication layer', 'Social deduction play supports live chat, voice or realtime state transport.', 'required', [/voice|chat|realtime|websocket|socket|live/i], ['websocket', 'socketio', 'voice', 'chat', 'rtcpeerconnection']),
+        spec('realtime_communication', 'Real-time communication layer', 'Social deduction play supports live chat, voice or realtime state transport.', 'required', [/voice|chat|realtime|websocket|socket|live|discord|bot|online|social deduction/i], ['websocket', 'socketio', 'voice', 'chat', 'rtcpeerconnection']),
       ];
     case 'api_service':
       return [

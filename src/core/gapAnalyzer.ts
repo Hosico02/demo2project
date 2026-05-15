@@ -840,6 +840,13 @@ export async function analyzeGaps(
     findings.push(...await assessUiImplementationRisks(snapshot.project_path, files, snapshot, pkg, projectSurfaceText));
   }
   if (isSocialDeductionGame(gameText, readme ?? '')) {
+    const agentFacingSocialDeduction = isAgentFacingSocialDeductionGame([
+      gameText,
+      playerText,
+      templateText,
+      configText,
+      readme ?? '',
+    ].join('\n'));
     const testFiles = files.filter((f) => /(^|\/)tests?\/.*\.py$/.test(f));
     const testTexts = await Promise.all(testFiles.map((f) => readTextSafe(path.join(snapshot.project_path, f))));
     const allTests = testTexts.join('\n');
@@ -928,9 +935,14 @@ export async function analyzeGaps(
         ),
       );
     }
-    productMaturity = await assessSocialDeductionProductMaturity(snapshot.project_path, files);
-    const productIntegration = await assessSocialDeductionRuntimeIntegration(snapshot.project_path, files);
+    productMaturity = agentFacingSocialDeduction
+      ? await assessAgentSocialDeductionTheaterMaturity(snapshot.project_path, files)
+      : await assessSocialDeductionProductMaturity(snapshot.project_path, files);
+    const productIntegration = agentFacingSocialDeduction
+      ? null
+      : await assessSocialDeductionRuntimeIntegration(snapshot.project_path, files);
     if (
+      productIntegration &&
       productIntegration.has_backbone_modules &&
       (!productIntegration.has_runtime_integration ||
         !productIntegration.has_user_facing_workflows ||
@@ -950,12 +962,18 @@ export async function analyzeGaps(
     if (productMaturity.level !== 'market_ready') {
       findings.push(
         finding(
-          'below_social_deduction_market_parity',
+          agentFacingSocialDeduction ? 'below_agent_social_deduction_theater_maturity' : 'below_social_deduction_market_parity',
           'medium',
-          'Social deduction product maturity is below mature market parity',
-          'Engineering readiness is not the same as a mature social game product: market examples include accounts, lobbies, matchmaking, social communication, moderation, rankings, live operations and large role/content systems.',
+          agentFacingSocialDeduction
+            ? 'Agent-facing social deduction theater maturity is below product grade'
+            : 'Social deduction product maturity is below mature market parity',
+          agentFacingSocialDeduction
+            ? 'An agent-facing werewolf product should be judged by model configuration, deterministic rules, replay/evaluation, observability and observer workflows rather than human matchmaking alone.'
+            : 'Engineering readiness is not the same as a mature social game product: market examples include accounts, lobbies, matchmaking, social communication, moderation, rankings, live operations and large role/content systems.',
           `Close missing market capabilities: ${productMaturity.missing_capabilities.slice(0, 6).join(', ')}.`,
-          ['docs/market-parity.md', 'app.py', 'game.py', 'rules.py', 'tests/test_app.py'],
+          agentFacingSocialDeduction
+            ? ['docs/agent-product.md', 'app.py', 'game.py', 'player.py', 'rules.py', 'tests/test_app.py', 'tests/test_eval_harness.py']
+            : ['docs/market-parity.md', 'app.py', 'game.py', 'rules.py', 'tests/test_app.py'],
         ),
       );
     }
@@ -1220,7 +1238,8 @@ export function auditAgentMisjudgments(input: MisjudgmentAuditInput): AgentMisju
       (f.category.startsWith('missing_social_deduction') ||
         f.category === 'random_social_deduction_tie_breaker' ||
         f.category === 'missing_game_design_doc' ||
-        f.category === 'below_social_deduction_market_parity') &&
+        f.category === 'below_social_deduction_market_parity' ||
+        f.category === 'below_agent_social_deduction_theater_maturity') &&
       !isSocialDeductionGame(input.projectSurfaceText, input.readme)
     ) {
       add(f, 'Social-deduction finding lacked werewolf/social-deduction gameplay evidence.');
@@ -2103,6 +2122,24 @@ function isSocialDeductionGame(gameText: string, readme: string): boolean {
   return (roleSignals >= 2 || hasRoleConfig) && phaseOrRuleSignals >= 1;
 }
 
+function isAgentFacingSocialDeductionGame(text: string): boolean {
+  const blob = text.toLowerCase();
+  const agentSignals = countSignals(blob, [
+    /\bllm\b|large language model|大模型/,
+    /\bagents?\b|multi[-_ ]?agent|智能体/,
+    /\bopenai\b|chat completions?|model provider|api key|base_url|模型|供应商/,
+    /\bprompt\b|system_prompt|提示词/,
+    /\breplay\b|transcript|复盘|观战|observer/,
+  ]);
+  const humanProductSignals = countSignals(blob, [
+    /\bvoice chat\b|语音/,
+    /\bmatchmaking\b|匹配/,
+    /\branked\b|leaderboard|排位|排行榜/,
+    /\bavatar\b|cosmetic|skin|皮肤/,
+  ]);
+  return agentSignals >= 2 && agentSignals >= humanProductSignals;
+}
+
 function countSignals(text: string, patterns: RegExp[]): number {
   return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
 }
@@ -2255,6 +2292,115 @@ async function assessSocialDeductionProductMaturity(
       'Wolvesville: online/friends/global play, avatar customization, ranked games, items and community events',
       'Wolvesville Creator Program: 50M+ downloads, 16-player games, 100+ unique roles, multi-platform',
       'Official Chinese Werewolf listings: real-time voice, fast matchmaking, voice judge guidance, modes, seasons and governance',
+    ],
+  };
+}
+
+async function assessAgentSocialDeductionTheaterMaturity(
+  root: string,
+  files: string[],
+): Promise<ProductMaturityAssessment> {
+  const implementationFiles = files.filter((f) =>
+    /^(app|game|rules|player|prompts|config|llm_config|wsgi|main|diag)\.py$/.test(f) ||
+    /^(replay|evaluation|evaluations|observability|metrics|storage|history)\.py$/.test(f) ||
+    /(^|\/)tests?\/.*\.(py|ts|js)$/.test(f) ||
+    /(^|\/)(src|server|backend|api|routes|models|services|templates|static|docs|scripts)\//.test(f) ||
+    /^README\.md$|^Dockerfile$|^pyproject\.toml$|^requirements\.txt$/.test(f),
+  );
+  const snippets = await Promise.all(
+    implementationFiles.slice(0, 160).map(async (file) => `${file}\n${(await readTextSafe(path.join(root, file))) ?? ''}`),
+  );
+  const blob = snippets.join('\n').toLowerCase();
+  const hasFile = (pattern: RegExp): boolean => files.some((file) => pattern.test(file));
+  const hasText = (pattern: RegExp): boolean => pattern.test(blob);
+  const hasTests = hasFile(/(^|\/)tests?\/.*\.(py|ts|js)$/);
+  const capabilities = [
+    capability(
+      'deterministic_rules_engine',
+      'Tested deterministic rules engine',
+      hasFile(/^rules\.py$/) && hasFile(/(^|\/)tests?\/.*rules.*\.py$/) && hasText(/resolve_vote_result|winner_from_alive_roles|validate_mode_config/),
+      ['rules.py', 'tests/test_rules.py'],
+    ),
+    capability(
+      'agent_model_configuration',
+      'Per-session agent model and provider configuration',
+      hasText(/public_provider_config|provider.*model|model.*provider|api_key|base_url|openai[-_ ]compatible/) &&
+        hasText(/request\.json|session|game_config|player.*config|per[-_ ]session/),
+      ['llm_config.py', 'app.py', 'templates/index.html'],
+    ),
+    capability(
+      'official_model_catalog',
+      'Official provider/model catalog with safe defaults',
+      hasText(/deepseek|qwen|minimax|openai/) &&
+        hasText(/default_model|models|source_url|official|provider catalog/),
+      ['llm_config.py', 'docs/model-providers.md'],
+    ),
+    capability(
+      'observer_product_surface',
+      'Observer-facing theater workflow',
+      hasText(/eventsource|\/stream\/|sse|observer|观战|thinking|timeline|vote_start|game_over/) &&
+        hasText(/start|mode|player|phase|state/),
+      ['templates/index.html', 'app.py'],
+    ),
+    capability(
+      'durable_replay_transcripts',
+      'Durable replay and transcript storage',
+      hasText(/replay|transcript|match_history|event_log|timeline/) &&
+        hasText(/sqlite|jsonl|database|persist|storage|archive|download/),
+      ['replay.py', 'history.py', 'tests/test_replay.py'],
+    ),
+    capability(
+      'simulation_evaluation_harness',
+      'Repeatable simulation and evaluation harness',
+      hasText(/seed|batch|evaluation|benchmark|regression|simulation|parallel universe|平行宇宙/) &&
+        hasText(/pytest|test_eval|run_many|aggregate|compare/),
+      ['evaluation.py', 'tests/test_eval_harness.py', 'scripts'],
+    ),
+    capability(
+      'agent_behavior_guardrails',
+      'Agent prompt and invalid-action guardrails',
+      hasText(/role secrecy|不要.*身份|invalid action|fallback|guardrail|strictly|工具|tool/) &&
+        hasText(/prompt|system_prompt|decide|speak/),
+      ['prompts.py', 'player.py', 'tests/test_prompts.py'],
+    ),
+    capability(
+      'observability_failure_diagnostics',
+      'Runtime observability and failure diagnostics',
+      hasText(/healthz|metrics|trace|audit|logger|diagnostic|diag|error|retry/) &&
+        hasText(/llm|agent|model|provider/),
+      ['diag.py', 'app.py', 'tests/test_observability.py'],
+    ),
+    capability(
+      'api_contract_verification',
+      'API and configuration contract tests',
+      hasTests && hasText(/test_client|\/healthz|\/config|\/start|\/stream|provider|model/),
+      ['tests/test_app.py', 'tests/test_llm_config.py'],
+    ),
+    capability(
+      'deployable_runtime_baseline',
+      'Deployable runtime with CI hooks',
+      hasFile(/^dockerfile$/i) &&
+        (hasFile(/^wsgi\.py$/) || hasText(/gunicorn|wsgi/)) &&
+        (hasFile(/(^|\/)\.github\/workflows\//) || hasFile(/^pyproject\.toml$/)) &&
+        hasTests,
+      ['Dockerfile', 'wsgi.py', '.github/workflows', 'pyproject.toml'],
+    ),
+  ];
+  const met = capabilities.filter((c) => c.met).length;
+  const score = Math.round((met / capabilities.length) * 100);
+  const missing = capabilities.filter((c) => !c.met && c.required_for_market_parity).map((c) => c.label);
+  return {
+    domain: 'agent_social_deduction_theater',
+    target_market: 'mature agent-facing werewolf simulation and observer product',
+    score,
+    level: productMaturityLevel(score, missing.length),
+    summary: `Detected ${met}/${capabilities.length} product-grade capabilities for an agent-facing social deduction theater.`,
+    capabilities,
+    missing_capabilities: missing,
+    references: [
+      'Agent-facing parity: configurable model providers and per-session credentials',
+      'Agent-facing parity: durable event transcripts, replay and observability for observer trust',
+      'Agent-facing parity: repeatable simulation/evaluation harnesses instead of human matchmaking-first features',
     ],
   };
 }

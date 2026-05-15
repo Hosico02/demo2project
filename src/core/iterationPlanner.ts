@@ -1049,6 +1049,39 @@ function buildTaskForFinding(
         priority: f.severity,
         status: 'pending',
       };
+    case 'below_agent_social_deduction_theater_maturity':
+      return {
+        id: shortId('task'),
+        iteration_id: iterationId,
+        assigned_to: 'executor',
+        title: 'Harden agent-facing werewolf product loop',
+        description: f.message,
+        acceptance_criteria: [
+          'per-session model provider, model, endpoint and API key settings are exposed without requiring a server-wide shared key',
+          'agent rules, role secrecy and invalid-action guardrails are covered by tests',
+          'matches produce durable replay or transcript artifacts for observer review',
+          'a repeatable simulation/evaluation harness can run seeded agent games and report regressions',
+          'docs/agent-product.md explains the agent-facing product boundary and how it differs from human multiplayer werewolf',
+        ],
+        expected_changed_files: [
+          'llm_config.py',
+          'app.py',
+          'game.py',
+          'player.py',
+          'prompts.py',
+          'replay.py',
+          'evaluation.py',
+          'templates/index.html',
+          'tests/test_llm_config.py',
+          'tests/test_rules.py',
+          'tests/test_replay.py',
+          'tests/test_eval_harness.py',
+          'docs/agent-product.md',
+        ],
+        verification_commands: ['python3 -m pytest -q'],
+        priority: f.severity,
+        status: 'pending',
+      };
     case 'below_market_research_parity':
       return {
         id: shortId('task'),

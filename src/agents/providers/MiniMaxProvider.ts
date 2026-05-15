@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import type { AgentTask, AgentResult, IterationEvent, VerificationResult } from '../../core/types.js';
 import type { AgentProvider, AgentContext } from './AgentProvider.js';
 import { runCommand } from '../../core/commandRunner.js';
@@ -404,6 +405,7 @@ async function listProjectFiles(root: string, max: number): Promise<string[]> {
 }
 
 async function collectContextFiles(root: string, expected: string[], recentEvents: IterationEvent[]): Promise<string> {
+  const projectWidePythonCompatibilityFailure = hasProjectWidePythonCompatibilityFailure(recentEvents);
   const candidates = new Set([
     ...expected,
     ...pathsFromRecentEvents(recentEvents),
@@ -427,7 +429,17 @@ async function collectContextFiles(root: string, expected: string[], recentEvent
     '.github/workflows/ci.yml',
     'Dockerfile',
   ]);
+  if (projectWidePythonCompatibilityFailure) {
+    for (const rel of await listRootPythonFiles(root)) candidates.add(rel);
+  }
   const chunks: string[] = [];
+  if (projectWidePythonCompatibilityFailure) {
+    chunks.push([
+      '--- MatrixOmnix repair note ---',
+      'Detected a project-wide Python compatibility pattern in recent verification output.',
+      'When fixing PEP 604 union syntax or similar runtime-version issues, inspect and update every relevant Python file in context instead of repairing one traceback file at a time.',
+    ].join('\n'));
+  }
   for (const rel of candidates) {
     const safe = safeRelPath(root, rel);
     if (!safe.ok) continue;
@@ -439,6 +451,23 @@ async function collectContextFiles(root: string, expected: string[], recentEvent
     }
   }
   return chunks.join('\n\n');
+}
+
+function hasProjectWidePythonCompatibilityFailure(events: IterationEvent[]): boolean {
+  const text = events.map((event) => `${event.message}\n${event.raw_output ?? ''}`).join('\n');
+  return /unsupported operand type\(s\) for \|.*NoneType|type.*\|\s*None|pep\s*604|requires python\s*3\.10/i.test(text);
+}
+
+async function listRootPythonFiles(root: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.py'))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 function summarizeRecentEvents(events: IterationEvent[]): string {
@@ -548,6 +577,22 @@ async function applyEdits(root: string, edits: MiniMaxEdit[]): Promise<string[]>
       continue;
     }
     try {
+      const existing = await readExistingFile(safe.abs);
+      const packageScaffoldFailure = await pythonPackageScaffoldDriftReason(root, safe.rel, edit.content, existing);
+      if (packageScaffoldFailure) {
+        failures.push(packageScaffoldFailure);
+        continue;
+      }
+      const syntaxFailure = syntaxPreflightFailure(safe.rel, edit.content);
+      if (syntaxFailure) {
+        failures.push(syntaxFailure);
+        continue;
+      }
+      const driftReason = existing === null ? null : semanticDriftEditReason(safe.rel, existing, edit.content);
+      if (driftReason) {
+        failures.push(driftReason);
+        continue;
+      }
       await fs.mkdir(path.dirname(safe.abs), { recursive: true });
       await fs.writeFile(safe.abs, edit.content);
     } catch (err) {
@@ -555,6 +600,120 @@ async function applyEdits(root: string, edits: MiniMaxEdit[]): Promise<string[]>
     }
   }
   return failures;
+}
+
+function syntaxPreflightFailure(rel: string, content: string): string | null {
+  if (!rel.endsWith('.py')) return null;
+  const result = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], {
+    input: content,
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  if (result.error || result.status === 0) return null;
+  const output = summarizeOutput(`${result.stderr ?? ''}\n${result.stdout ?? ''}`, 8, 600);
+  return `syntax_preflight_failed:${rel}:${output}`;
+}
+
+async function readExistingFile(abs: string): Promise<string | null> {
+  try {
+    return await fs.readFile(abs, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function pythonPackageScaffoldDriftReason(
+  root: string,
+  rel: string,
+  content: string,
+  existing: string | null,
+): Promise<string | null> {
+  if (rel !== 'package.json' || existing !== null) return null;
+  if (!await looksLikePythonProject(root)) return null;
+  let pkg: { scripts?: Record<string, unknown>; devDeps?: unknown; requires?: unknown };
+  try {
+    pkg = JSON.parse(content) as typeof pkg;
+  } catch {
+    return null;
+  }
+  const scripts = pkg.scripts ?? {};
+  const scriptText = Object.entries(scripts).map(([key, value]) => `${key}:${String(value)}`).join('\n');
+  const badSignals = [
+    /\btest\s*:\s*echo ['"]?tests? not implemented/i,
+    /\bstart\s*:\s*powershell\s+app\.sh/i,
+    /\bstop\s*:\s*powershell\s+app\.sh\s+stop/i,
+    /\b(devDeps|requires)\b/i,
+  ];
+  const hasBadSignal = badSignals.some((pattern) => pattern.test(`${scriptText}\n${content}`));
+  if (!hasBadSignal) return null;
+  return 'python_package_scaffold_drift:package.json: refused fake Node package scaffold for Python project; add only explicit contract scripts or use Python-native harness files';
+}
+
+async function looksLikePythonProject(root: string): Promise<boolean> {
+  const signals = ['app.py', 'main.py', 'wsgi.py', 'requirements.txt', 'pyproject.toml'];
+  for (const signal of signals) {
+    try {
+      await fs.access(path.join(root, signal));
+      return true;
+    } catch {
+      /* keep scanning */
+    }
+  }
+  return false;
+}
+
+function semanticDriftEditReason(rel: string, before: string, after: string): string | null {
+  const beforeWerewolfSignals = countMatches(before, [
+    /狼人杀/g,
+    /狼人/g,
+    /预言家/g,
+    /女巫/g,
+    /猎人/g,
+    /守卫/g,
+    /白痴/g,
+    /村民/g,
+    /\bwerewolf\b/gi,
+    /\bseer\b/gi,
+    /\bwitch\b/gi,
+    /\bhunter\b/gi,
+    /\bguard\b/gi,
+    /\bvillager\b/gi,
+    /\bsocial[-_ ]?deduction\b/gi,
+  ]);
+  if (beforeWerewolfSignals < 3) return null;
+  const afterWerewolfSignals = countMatches(after, [
+    /狼人杀/g,
+    /狼人/g,
+    /预言家/g,
+    /女巫/g,
+    /猎人/g,
+    /守卫/g,
+    /白痴/g,
+    /村民/g,
+    /\bwerewolf\b/gi,
+    /\bseer\b/gi,
+    /\bwitch\b/gi,
+    /\bhunter\b/gi,
+    /\bguard\b/gi,
+    /\bvillager\b/gi,
+    /\bsocial[-_ ]?deduction\b/gi,
+  ]);
+  const unrelatedSignals = countMatches(after, [
+    /\bchess\b/gi,
+    /\bfens?\b/gi,
+    /\balgebraic notation\b/gi,
+    /\bcandidate moves?\b/gi,
+    /\bboard position\b/gi,
+    /国际象棋/g,
+  ]);
+  if (afterWerewolfSignals <= 1 && unrelatedSignals > 0) {
+    return `semantic_drift_edit:${rel}: preserved werewolf/social-deduction prompt signals dropped and unrelated domain text appeared`;
+  }
+  return null;
+}
+
+function countMatches(text: string, patterns: RegExp[]): number {
+  return patterns.reduce((total, pattern) => total + (text.match(pattern)?.length ?? 0), 0);
 }
 
 function safeRelPath(root: string, rel: string): { ok: true; abs: string; rel: string } | { ok: false } {

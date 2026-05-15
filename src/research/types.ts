@@ -1,5 +1,6 @@
 export type MarketResearchDomain =
   | 'web_ui_app'
+  | 'agent_social_deduction_theater'
   | 'social_deduction_game'
   | 'saas_app'
   | 'api_service'

@@ -42,6 +42,13 @@ and can reserve one task slot for high-confidence, source-backed work. They
 cannot mark a project product-ready: unsourced advice is dropped, and the
 Verifier, Reviewer and Scorer remain authoritative.
 
+For agent-facing products, domain inference now keeps the product premise in
+scope. For example, an LLM werewolf theater is assessed as an
+`agent_social_deduction_theater`: the loop compares it against model
+configuration, deterministic rules, replay/transcript storage, simulation
+evaluation, observability and observer workflows instead of forcing it into a
+human multiplayer account/lobby/voice-chat roadmap.
+
 Full quickstart: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md). CLI reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
 Web app: [`site/`](site/). The MatrixOmnix interface is a Vite/Vue app based
@@ -71,6 +78,9 @@ The current system is intentionally strict about evidence:
   model-backed market, gap, planner and reviewer critics before planning, while
   still requiring source URLs and local verification commands before their
   proposals become normal tasks.
+- agent-facing social deduction demos now get a dedicated maturity model, so
+  MatrixOmnix can preserve the multi-agent theater premise while still gating
+  rules, model/provider configuration, replay, evaluation and observability.
 - `iterate` plans bounded tasks and verifies them locally before accepting
   progress.
 - failed verification becomes repair work before normal productization
@@ -213,6 +223,11 @@ demo. Current harness families include:
   Gap analysis consumes only source-backed capabilities, ignores unsourced
   claims, and creates market-parity tasks without copying competitor text,
   code, UI, names or brand assets.
+- **Agent-facing simulation products** — detects LLM/agent social-deduction
+  theaters separately from human multiplayer games, then plans toward
+  per-session model/provider settings, deterministic rule tests, prompt
+  guardrails, replay/transcript artifacts, simulation/evaluation harnesses and
+  observer-facing workflows.
 
 ---
 
@@ -334,6 +349,15 @@ pnpm matrixomnix iterate \
   --web \
   --advisory-agents
 
+# Run a premise-preserving agent-facing werewolf productization pass
+pnpm matrixomnix iterate \
+  --project ./werewolf-demo \
+  --goal "Productize this agent-facing Werewolf multi-agent theater without changing its premise" \
+  --max-iterations 2 \
+  --provider minimax \
+  --web \
+  --advisory-agents
+
 # QA workflow
 pnpm matrixomnix qa:preflight --project examples/bad-demo
 pnpm matrixomnix qa:regression --project examples/bad-demo
@@ -359,7 +383,12 @@ to start fresh.
   config, data, worker and UI harness scaffolds.
 - `MiniMaxProvider` — real MiniMax API-backed executor. Set
   `DEMO2PROJECT_MINIMAX=1` and `MINIMAX_API_KEY`; the executor still reports
-  changed files and verification commands through the same gate.
+  changed files and verification commands through the same gate. The provider
+  now retries malformed JSON edit payloads, rejects domain-drift edits such as
+  replacing werewolf prompts with unrelated chess content, preflights Python
+  syntax before writing files, broadens repair context for project-wide Python
+  compatibility failures and refuses fake Node package scaffolds that would
+  demote a Python project.
 - `ClaudeCodeProvider` — real `claude -p` subprocess driver. Set
   `DEMO2PROJECT_CLAUDE_CODE=1` to arm; the JSON protocol is documented in
   `docs/architecture.md`.
@@ -384,6 +413,14 @@ their claims are only accepted after local verification and scoring.
 - The MatrixOmnix web Service page is a beta usage guide. Hosted file intake,
   queued processing and artifact packaging are deferred until the productization
   pipeline has stronger production guarantees.
+- A live MiniMax-M2.7-highspeed run on a restored `werewolf-demo` improved the
+  loop behavior but did not reach product readiness: MatrixOmnix correctly
+  identified the `agent_social_deduction_theater` domain, refreshed model
+  catalog/research artifacts, repaired a project-wide Python 3.9 compatibility
+  failure across multiple files, and got the generated smoke suite to
+  `16 passed, 1 skipped`. The run still ended at `50/100 working_demo` because
+  the generated API contract harness was incomplete. That is tracked as a real
+  remaining productization gap, not a success claim.
 
 ---
 

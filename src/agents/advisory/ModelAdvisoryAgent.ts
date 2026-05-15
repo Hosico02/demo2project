@@ -18,10 +18,6 @@ export class ModelAdvisoryAgent {
     roles: AdvisoryAgentRole[],
     input: Omit<AdvisoryRequest, 'role'>,
   ): Promise<AdvisoryReport[]> {
-    const reports: AdvisoryReport[] = [];
-    for (const role of roles) {
-      reports.push(await this.run(role, input));
-    }
-    return reports;
+    return Promise.all(roles.map((role) => this.run(role, input)));
   }
 }

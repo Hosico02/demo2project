@@ -1218,6 +1218,44 @@ describe('gapAnalyzer', () => {
     if (confidenceAdjusted !== undefined) expect(confidenceAdjusted).toBeLessThanOrEqual(gap.score.total);
   });
 
+  it('uses an agent-facing maturity model for LLM werewolf theaters instead of human matchmaking parity', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-agent-werewolf-maturity-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# 狼人杀 Multi-Agent Theater\n\nLLM agents play werewolf for human observers with prompts, model providers and replay summaries.\n' + 'x'.repeat(320));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\nopenai>=1.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify',
+      'app = Flask(__name__)',
+      '@app.route("/config")',
+      'def config():',
+      '    return jsonify({"model": "demo", "has_key": False})',
+      '@app.route("/stream/<gid>")',
+      'def stream(gid):',
+      '    return "SSE EventSource observer timeline"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'game.py'), [
+      'GAME_MODES = {"m9": {"roles": ["werewolf", "seer", "witch", "villager"]}}',
+      'class GameMaster:',
+      '    def winner(self):',
+      '        return None',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'player.py'), 'from openai import OpenAI\nclass Player:\n    def speak(self):\n        return "LLM agent model provider call"\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), 'def build_system_prompt():\n    return "prompt: strictly play your secret werewolf role"\n');
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<script>new EventSource("/stream/demo");</script><button id="start">start</button>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(gap.product_maturity?.domain).toBe('agent_social_deduction_theater');
+    expect(gap.product_maturity?.missing_capabilities).toContain('Per-session agent model and provider configuration');
+    expect(categories).toContain('below_agent_social_deduction_theater_maturity');
+    expect(categories).not.toContain('below_social_deduction_market_parity');
+    expect(gap.product_maturity?.missing_capabilities).not.toContain('Account identity and player profiles');
+    expect(gap.score.score_gate?.failures.some((f) => f.reason.includes('agent_social_deduction_theater'))).toBe(true);
+  });
+
   it('does not count isolated social deduction product backbone modules as market ready', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-werewolf-isolated-backbone-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });

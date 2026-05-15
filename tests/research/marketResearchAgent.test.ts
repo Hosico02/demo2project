@@ -6,6 +6,7 @@ import {
   runMarketResearch,
   writeMarketResearchReport,
   loadMarketResearchReport,
+  deriveCapabilities,
 } from '../../src/research/MarketResearchAgent.js';
 import type { SearchProvider } from '../../src/research/SearchProvider.js';
 
@@ -77,5 +78,60 @@ describe('MarketResearchAgent', () => {
 
     expect(loaded?.domain).toBe('social_deduction_game');
     expect(loaded?.capabilities.map((c) => c.id)).toContain('lobby_matchmaking');
+  });
+
+  it('extracts social deduction capabilities from sparse mature werewolf search results', () => {
+    const capabilities = deriveCapabilities('social_deduction_game', [
+      {
+        title: 'Wolvesville',
+        url: 'https://app.wolvesville.com/',
+        snippet: 'Defend your village from the forces of evil or become a werewolf',
+      },
+      {
+        title: 'Wolvesville - Werewolf Online - Apps on Google Play',
+        url: 'https://play.google.com/store/apps/details?id=com.werewolfapps.online',
+        snippet: 'Join millions of players in the ultimate social deduction game',
+      },
+      {
+        title: 'AI Werewolf Game Online | Play Social Deduction with AI',
+        url: 'https://www.werewolvesai.app/',
+        snippet: 'Play AI Wolves with autonomous agents and online lobbies',
+      },
+      {
+        title: 'Add Lycantopia Discord Bot',
+        url: 'https://top.gg/bot/1493437102166376610',
+        snippet: 'The ultimate Werewolf party game bot for Discord communities',
+      },
+    ]);
+
+    expect(capabilities.map((capability) => capability.id)).toEqual(expect.arrayContaining([
+      'lobby_matchmaking',
+      'realtime_communication',
+      'account_identity',
+    ]));
+  });
+
+  it('extracts agent-facing werewolf capabilities without forcing human multiplayer assumptions', () => {
+    const capabilities = deriveCapabilities('agent_social_deduction_theater', [
+      {
+        title: 'AI Werewolf Lab',
+        url: 'https://example.com/ai-werewolf',
+        snippet: 'Multi-agent werewolf benchmark with model provider configuration, replay transcripts and seeded simulation comparison.',
+      },
+      {
+        title: 'LLM Agent Game Evals',
+        url: 'https://example.com/agent-game-evals',
+        snippet: 'Evaluation harness for repeated social deduction simulations, traces, metrics and prompt guardrails.',
+      },
+    ]);
+
+    expect(capabilities.map((capability) => capability.id)).toEqual(expect.arrayContaining([
+      'agent_model_configuration',
+      'simulation_replay_observability',
+      'evaluation_harness',
+      'deterministic_rules_and_guardrails',
+    ]));
+    expect(capabilities.map((capability) => capability.id)).not.toContain('account_identity');
+    expect(capabilities.map((capability) => capability.id)).not.toContain('lobby_matchmaking');
   });
 });

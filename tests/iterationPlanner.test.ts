@@ -407,6 +407,60 @@ describe('iterationPlanner', () => {
     expect(task?.acceptance_criteria.join('\n')).toContain('market parity');
   });
 
+  it('plans agent-facing werewolf product work without pivoting to human multiplayer features', () => {
+    const planner = new PlannerAgent();
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-agent-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['README.md', 'app.py', 'game.py', 'player.py', 'prompts.py'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 100, grade: 'production_ready_baseline', breakdown: {} as never, notes: [] },
+      findings: [
+        {
+          id: 'gap-agent-market',
+          category: 'below_agent_social_deduction_theater_maturity',
+          severity: 'medium',
+          message: 'Below agent-facing theater maturity',
+          why_it_matters: '',
+          suggested_fix: '',
+          related_files: ['docs/agent-product.md'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+      product_maturity: {
+        domain: 'agent_social_deduction_theater',
+        target_market: 'mature agent-facing werewolf simulation and observer product',
+        score: 30,
+        level: 'engineering_baseline',
+        summary: '3/10 capabilities',
+        capabilities: [],
+        missing_capabilities: ['Per-session agent model and provider configuration'],
+        references: [],
+      },
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'keep the agent-facing werewolf premise and make it product-grade');
+    const task = plan.tasks.find((t) => t.title === 'Harden agent-facing werewolf product loop');
+
+    expect(task).toBeTruthy();
+    expect(task?.expected_changed_files).toContain('llm_config.py');
+    expect(task?.expected_changed_files).toContain('evaluation.py');
+    expect(task?.expected_changed_files).toContain('docs/agent-product.md');
+    expect(task?.expected_changed_files).not.toContain('accounts.py');
+    expect(task?.acceptance_criteria.join('\n')).toContain('per-session model provider');
+    expect(task?.acceptance_criteria.join('\n')).toContain('human multiplayer');
+  });
+
   it('plans runtime integration when social product backbone is disconnected', () => {
     const planner = new PlannerAgent();
     const gap = {

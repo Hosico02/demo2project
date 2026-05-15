@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,18 @@ import { RuleBasedExecutor } from '../src/agents/providers/RuleBasedExecutor.js'
 const execFileAsync = promisify(execFile);
 const sourceFixture = path.resolve(process.cwd(), '..', 'werewolf-demo');
 const excludedNames = new Set(['.git', '.venv', '__pycache__', '.demo2project', '.pytest_cache']);
-const integrationIt = existsSync(sourceFixture) ? it : it.skip;
+const integrationIt = sourceFixtureLooksLikeWerewolf() ? it : it.skip;
+
+function sourceFixtureLooksLikeWerewolf(): boolean {
+  if (!existsSync(sourceFixture)) return false;
+  try {
+    const readme = readFileSync(path.join(sourceFixture, 'README.md'), 'utf8');
+    const prompts = readFileSync(path.join(sourceFixture, 'prompts.py'), 'utf8');
+    return /werewolf|狼人杀|狼人/i.test(`${readme}\n${prompts}`) && !/chess analysis assistant/i.test(prompts);
+  } catch {
+    return false;
+  }
+}
 
 async function copyWerewolfFixture(): Promise<string> {
   const target = await fs.mkdtemp(path.join(tmpdir(), 'd2p-evolith-werewolf-'));

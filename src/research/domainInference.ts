@@ -1,12 +1,24 @@
 import type { ProjectSnapshot } from '../core/types.js';
 import type { MarketResearchDomain } from './types.js';
 
-export function inferMarketResearchDomain(snapshot: ProjectSnapshot): MarketResearchDomain {
+export function inferMarketResearchDomain(snapshot: ProjectSnapshot, sourceText = ''): MarketResearchDomain {
   const frameworks = new Set(snapshot.detected_frameworks.map((framework) => framework.toLowerCase()));
   const files = snapshot.important_files.join('\n').toLowerCase();
-  const all = `${snapshot.detected_language}\n${snapshot.detected_frameworks.join('\n')}\n${files}`;
+  const all = `${snapshot.detected_language}\n${snapshot.detected_frameworks.join('\n')}\n${files}\n${sourceText}`.toLowerCase();
 
-  if (/werewolf|mafia|social[-_ ]?deduction|lobby|matchmaking/.test(all)) return 'social_deduction_game';
+  const hasSocialDeductionSignals =
+    /werewolf|mafia|social[-_ ]?deduction|狼人杀|狼人|预言家|女巫|猎人|守卫|白痴|村民|game_modes|role_desc/.test(all);
+  if (
+    hasSocialDeductionSignals &&
+    /\b(llm|agent|multi-agent|ai player|ai players|openai|model|prompt|chat completions?|autogen|langgraph)\b|智能体|大模型|模型|提示词|复盘/.test(all)
+  ) {
+    return 'agent_social_deduction_theater';
+  }
+  if (
+    hasSocialDeductionSignals
+  ) {
+    return 'social_deduction_game';
+  }
   if (frameworks.has('react') || frameworks.has('vue') || frameworks.has('next') || frameworks.has('svelte') || /\.(vue|tsx|jsx|html)\b/.test(files)) return 'web_ui_app';
   if (frameworks.has('fastapi') || frameworks.has('flask') || frameworks.has('django') || frameworks.has('express') || frameworks.has('fastify') || frameworks.has('nestjs')) return 'api_service';
   if (/cli|bin|command/.test(all)) return 'cli_tool';
@@ -19,6 +31,8 @@ export function defaultMarketResearchQuery(domain: MarketResearchDomain): string
   switch (domain) {
     case 'web_ui_app':
       return 'best production web UI product accessibility responsive onboarding patterns';
+    case 'agent_social_deduction_theater':
+      return 'AI werewolf multi agent social deduction simulation product features replay evaluation observability model configuration';
     case 'social_deduction_game':
       return 'mature online werewolf social deduction game product features matchmaking moderation ranked';
     case 'saas_app':

@@ -126,6 +126,56 @@ describe('MiniMaxProvider', () => {
     expect(userPrompt).toContain('PROMPTS_SENTINEL');
   });
 
+  it('broadens Python repair context for project-wide compatibility failures', async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, 'game.py'), 'GAME_SENTINEL: int | None = None\n');
+    await fs.writeFile(path.join(dir, 'player.py'), 'PLAYER_SENTINEL: dict | None = None\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), 'PROMPTS_SENTINEL: list | None = None\n');
+    let userPrompt = '';
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      userPrompt = body.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: 'No safe edit',
+              changed_files: [],
+              edits: [],
+              risks: ['needs compatibility scan'],
+              next_steps: [],
+            }),
+          },
+        }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const recent: IterationEvent[] = [{
+      id: 'evt_py39',
+      iteration_id: 'i_minimax',
+      timestamp: '2026-05-13T00:00:00.000Z',
+      agent: 'verifier',
+      event_type: 'verification_failed',
+      severity: 'high',
+      message: 'failed: python3 -m pytest -q',
+      raw_output: 'prompts.py:83: TypeError: unsupported operand type(s) for |: "type" and "NoneType"',
+    }];
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    await provider.runTask(task, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: recent,
+    });
+
+    expect(userPrompt).toContain('project-wide Python compatibility pattern');
+    expect(userPrompt).toContain('--- game.py ---');
+    expect(userPrompt).toContain('GAME_SENTINEL');
+    expect(userPrompt).toContain('--- player.py ---');
+    expect(userPrompt).toContain('PLAYER_SENTINEL');
+    expect(userPrompt).toContain('--- prompts.py ---');
+    expect(userPrompt).toContain('PROMPTS_SENTINEL');
+  });
+
   it('repairs common unquoted-key JSON drift in multi-file edit payloads', async () => {
     const dir = await tmp();
     const fetchImpl = (async () => {
@@ -285,5 +335,156 @@ describe('MiniMaxProvider', () => {
     expect(result.status).toBe('completed');
     expect(result.changed_files).toEqual(['app.py']);
     expect(await fs.readFile(path.join(dir, 'app.py'), 'utf8')).toContain('[redacted]');
+  });
+
+  it('rejects semantic drift edits that replace domain prompts with an unrelated product domain', async () => {
+    const dir = await tmp();
+    const originalPrompts = [
+      'ROLE_DESC = {',
+      '    "werewolf": "狼人 - 夜晚和队友一起选择杀人",',
+      '    "seer": "预言家 - 每晚可以查验一名玩家",',
+      '}',
+      'def build_system_prompt(pid, role, mode_info):',
+      '    return "狼人杀 agent theater"',
+      '',
+    ].join('\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), originalPrompts);
+    const driftTask: AgentTask = {
+      id: 't_semantic_drift',
+      iteration_id: 'i_minimax',
+      assigned_to: 'executor',
+      title: 'Repair failed verification: python3 -m pytest -q',
+      description: 'pytest failed while importing prompts.py; preserve the werewolf agent theater domain.',
+      acceptance_criteria: ['prompts.py still contains werewolf role prompts'],
+      expected_changed_files: ['prompts.py'],
+      verification_commands: ['grep -q 狼人 prompts.py'],
+      priority: 'blocker',
+      status: 'pending',
+    };
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            summary: 'Rewrote prompts',
+            changed_files: ['prompts.py'],
+            edits: [{
+              path: 'prompts.py',
+              content: 'def build_system_prompt(turns):\n    return "You are a helpful chess analysis assistant."\n',
+            }],
+            risks: [],
+            next_steps: [],
+          }),
+        },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    const result = await provider.runTask(driftTask, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: [],
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failures.some((failure) => failure.includes('semantic_drift_edit:prompts.py'))).toBe(true);
+    expect(await fs.readFile(path.join(dir, 'prompts.py'), 'utf8')).toBe(originalPrompts);
+  });
+
+  it('rejects invalid Python syntax edits before they are written', async () => {
+    const dir = await tmp();
+    const originalGame = 'def vote_tally(votes):\n    return votes\n';
+    await fs.writeFile(path.join(dir, 'game.py'), originalGame);
+    const syntaxTask: AgentTask = {
+      id: 't_syntax_guard',
+      iteration_id: 'i_minimax',
+      assigned_to: 'executor',
+      title: 'Repair failed verification: python3 -m pytest -q',
+      description: 'pytest failed while importing game.py; preserve syntactic validity.',
+      acceptance_criteria: ['game.py imports cleanly'],
+      expected_changed_files: ['game.py'],
+      verification_commands: ['python3 -m py_compile game.py'],
+      priority: 'blocker',
+      status: 'pending',
+    };
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            summary: 'Attempted game repair',
+            changed_files: ['game.py'],
+            edits: [{
+              path: 'game.py',
+              content: 'def vote_tally(votes):\n    tally = Counter(target for target in [1, 2)\n    return tally\n',
+            }],
+            risks: [],
+            next_steps: [],
+          }),
+        },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    const result = await provider.runTask(syntaxTask, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: [],
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failures.some((failure) => failure.includes('syntax_preflight_failed:game.py'))).toBe(true);
+    expect(await fs.readFile(path.join(dir, 'game.py'), 'utf8')).toBe(originalGame);
+  });
+
+  it('rejects fake Node package scaffolds that would demote a Python project', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-python-package-drift-'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("python app")\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3\n');
+    const apiTask: AgentTask = {
+      id: 't_api_contract',
+      iteration_id: 'i_minimax',
+      assigned_to: 'executor',
+      title: 'Add API contract harness',
+      description: 'Add an API contract harness without replacing Python project identity.',
+      acceptance_criteria: ['package scripts expose api:contract-check without replacing test/build validation'],
+      expected_changed_files: ['docs/api-contract.md', 'scripts/api-contract-check.mjs', 'package.json'],
+      verification_commands: ['node scripts/api-contract-check.mjs'],
+      priority: 'high',
+      status: 'pending',
+    };
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            summary: 'Added fake Node scaffold',
+            changed_files: ['package.json'],
+            edits: [{
+              path: 'package.json',
+              content: JSON.stringify({
+                name: 'werewolf-ms',
+                scripts: {
+                  start: 'powershell app.sh',
+                  test: "echo 'Tests not implemented' && exit 0",
+                  'api:contract-check': 'node scripts/api-contract-check.mjs',
+                },
+                devDeps: { eslint: '^8.0.0' },
+              }, null, 2),
+            }],
+            risks: [],
+            next_steps: [],
+          }),
+        },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+    const result = await provider.runTask(apiTask, {
+      project_path: dir,
+      iteration_id: 'i_minimax',
+      recent_events: [],
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failures.some((failure) => failure.includes('python_package_scaffold_drift:package.json'))).toBe(true);
+    await expect(fs.stat(path.join(dir, 'package.json'))).rejects.toBeTruthy();
   });
 });

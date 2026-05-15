@@ -49,26 +49,17 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
-      const response = await this.opts.fetchImpl(`${this.opts.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.opts.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          temperature: 0.2,
-          max_tokens: 4096,
-          messages: buildMessages(request),
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        return this.emptyReport(request, [`MiniMax advisory API failed with status ${response.status}`]);
+      const messages = buildMessages(request);
+      let response = await this.invoke(messages, controller.signal);
+      if ('error' in response) return this.emptyReport(request, [response.error]);
+      let content = extractAssistantText(response.json);
+      let parsed = parseJsonObject(content);
+      if (!parsed) {
+        response = await this.invoke(buildRepairMessages(messages, content), controller.signal);
+        if ('error' in response) return this.emptyReport(request, [response.error]);
+        content = extractAssistantText(response.json);
+        parsed = parseJsonObject(content);
       }
-      const json = await response.json();
-      const content = extractAssistantText(json);
-      const parsed = parseJsonObject(content);
       if (!parsed) {
         return this.emptyReport(request, ['MiniMax advisory output was not parseable JSON']);
       }
@@ -83,6 +74,28 @@ export class MiniMaxAdvisoryProvider implements AdvisoryProvider {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async invoke(
+    messages: Array<{ role: 'system' | 'user'; content: string }>,
+    signal: AbortSignal,
+  ): Promise<{ json: unknown } | { error: string }> {
+    const response = await this.opts.fetchImpl(`${this.opts.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.opts.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        temperature: 0.2,
+        max_tokens: 4096,
+        messages,
+      }),
+      signal,
+    });
+    if (!response.ok) return { error: `MiniMax advisory API failed with status ${response.status}` };
+    return { json: await response.json() };
   }
 
   private emptyReport(request: AdvisoryRequest, risks: string[]): AdvisoryReport {
@@ -161,6 +174,36 @@ function buildMessages(request: AdvisoryRequest): Array<{ role: 'system' | 'user
   ];
 }
 
+function buildRepairMessages(
+  originalMessages: Array<{ role: 'system' | 'user'; content: string }>,
+  invalidResponse: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  const originalUser = originalMessages.find((message) => message.role === 'user')?.content ?? '';
+  return [
+    {
+      role: 'system',
+      content: [
+        'You repair a previous MatrixOmnix advisory response into strict JSON.',
+        'Return ONLY one JSON object. No markdown, no prose, no comments.',
+        'Use exactly these top-level fields: raw_summary, findings, task_proposals, risks.',
+        'Every finding must include category, severity, message, why_it_matters, suggested_fix, related_files, confidence, source_urls, evidence.',
+        'Every task proposal must include title, description, acceptance_criteria, expected_changed_files, verification_commands, priority, confidence, source_urls.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        'Previous advisory response was not parseable JSON.',
+        'Rewrite it as strict JSON for the same advisory request.',
+        '',
+        `Original advisory request:\n${truncate(originalUser, 12_000)}`,
+        '',
+        `Invalid advisory response:\n${truncate(invalidResponse, 4_000)}`,
+      ].join('\n'),
+    },
+  ];
+}
+
 function extractAssistantText(json: unknown): string {
   const root = json as { choices?: Array<{ message?: { content?: unknown }; text?: unknown }> };
   const first = root?.choices?.[0];
@@ -169,14 +212,24 @@ function extractAssistantText(json: unknown): string {
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
-  const trimmed = stripCodeFence(text.trim());
+  const trimmed = stripCodeFence(text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim());
   try {
     const parsed = JSON.parse(trimmed);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? parsed as Record<string, unknown>
       : null;
   } catch {
-    return null;
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start === -1 || end <= start) return null;
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -187,4 +240,8 @@ function stripCodeFence(text: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}\n... [truncated, original ${text.length} chars]` : text;
 }

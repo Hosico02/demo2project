@@ -30,6 +30,7 @@ import { QAAgent } from '../qa/QAAgent.js';
 import { QACaseStore } from '../qa/QACaseStore.js';
 import { DEFAULT_PROJECT_STANDARD } from '../standards/defaultProjectStandard.js';
 import { nowIso, shortId } from '../utils/time.js';
+import { listFiles, readTextSafe } from '../utils/fs.js';
 import type { AgentProvider } from './providers/AgentProvider.js';
 import type { AdvisoryProvider } from './advisory/AdvisoryProvider.js';
 import { ModelAdvisoryAgent } from './advisory/ModelAdvisoryAgent.js';
@@ -532,7 +533,7 @@ export class SupervisorAgent {
     }
     try {
       const snapshot = await this.analyzer.snapshot(opts.projectPath);
-      const domain = inferMarketResearchDomain(snapshot);
+      const domain = inferMarketResearchDomain(snapshot, await collectDomainInferenceText(opts.projectPath));
       const query = defaultMarketResearchQuery(domain);
       const provider = opts.advisory.searchProvider ?? new ControlledWebSearchProvider({
         systemRoot: opts.projectPath,
@@ -689,6 +690,28 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function collectDomainInferenceText(projectPath: string): Promise<string> {
+  const files = await listFiles(projectPath, 300);
+  const candidates = files
+    .filter((file) => /\.(md|py|js|ts|tsx|jsx|vue|html|txt|toml|json)$/i.test(file))
+    .filter((file) => !/(^|\/)(package-lock|pnpm-lock|yarn\.lock|uv\.lock)\b/.test(file))
+    .sort((a, b) => domainSignalRank(a) - domainSignalRank(b))
+    .slice(0, 40);
+  const chunks: string[] = [];
+  for (const file of candidates) {
+    const text = await readTextSafe(path.join(projectPath, file));
+    if (!text) continue;
+    chunks.push(`--- ${file} ---\n${text.slice(0, 6000)}`);
+  }
+  return chunks.join('\n');
+}
+
+function domainSignalRank(file: string): number {
+  if (/README|game|rules|prompts|player|main|app/i.test(file)) return 0;
+  if (/src|templates|docs/i.test(file)) return 1;
+  return 2;
 }
 
 function dedupe<T>(arr: T[]): T[] {

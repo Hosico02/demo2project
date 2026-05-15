@@ -7,6 +7,7 @@ import { MiniMaxAdvisoryProvider } from '../src/agents/advisory/MiniMaxAdvisoryP
 import { MockAdvisoryProvider } from '../src/agents/advisory/MockAdvisoryProvider.js';
 import { planIteration } from '../src/core/iterationPlanner.js';
 import type { GapReport, ProjectSnapshot, ProjectScore } from '../src/core/types.js';
+import type { AdvisoryProvider, AdvisoryRequest } from '../src/agents/advisory/AdvisoryProvider.js';
 
 function snapshot(projectPath: string): ProjectSnapshot {
   return {
@@ -244,5 +245,94 @@ describe('model-backed advisory agents', () => {
     expect(report.model).toBe('MiniMax-M2.7-highspeed');
     expect(report.findings[0]?.category).toBe('market_missing_onboarding');
     expect(await fs.readFile(path.join(dir, 'app.js'), 'utf8')).toBe('console.log("demo");\n');
+  });
+
+  it('MiniMax advisory provider repairs prose-wrapped non-JSON advisory output', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-minimax-advisory-repair-'));
+    let calls = 0;
+    let repairPrompt = '';
+    const fetchImpl = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      if (calls === 2) {
+        repairPrompt = body.messages.find((message: { role: string }) => message.role === 'user')?.content ?? '';
+      }
+      const content = calls === 1
+        ? 'Here is the critique:\nraw_summary: missing JSON object'
+        : JSON.stringify({
+          raw_summary: 'Source-backed agent theater product gaps.',
+          findings: [{
+            category: 'agent_theater_eval_gap',
+            severity: 'high',
+            message: 'Missing repeatable agent evaluation loop',
+            why_it_matters: 'Agent-facing products need deterministic regression evidence.',
+            suggested_fix: 'Add replay/evaluation harness.',
+            related_files: ['game.py'],
+            confidence: 'high',
+            source_urls: ['https://example.com/agent-evaluation'],
+            evidence: [],
+          }],
+          task_proposals: [],
+          risks: [],
+        });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      } as Response;
+    };
+
+    const provider = new MiniMaxAdvisoryProvider({
+      enabled: true,
+      apiKey: 'test-key',
+      fetchImpl,
+      model: 'MiniMax-M2.7-highspeed',
+    });
+    const report = await provider.runAdvisory({
+      role: 'gap_critic',
+      projectPath: dir,
+      goal: 'keep the agent-facing werewolf premise',
+      snapshot: snapshot(dir),
+      score: score(),
+      gap: gapReport(dir),
+      allowNetwork: true,
+    });
+
+    expect(calls).toBe(2);
+    expect(repairPrompt).toContain('Previous advisory response was not parseable JSON');
+    expect(report.findings[0]?.category).toBe('agent_theater_eval_gap');
+    expect(report.risks).not.toContain('MiniMax advisory output was not parseable JSON');
+  });
+
+  it('runs independent advisory roles in parallel', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const provider: AdvisoryProvider = {
+      name: 'slow-advisory',
+      model: 'mock',
+      async runAdvisory(request: AdvisoryRequest) {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        active--;
+        return new MockAdvisoryProvider({ raw_summary: request.role }).runAdvisory(request);
+      },
+    };
+
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-advisory-parallel-'));
+    const reports = await new ModelAdvisoryAgent(provider).runMany(
+      ['market_comparator', 'gap_critic', 'planner_critic', 'reviewer_critic'],
+      {
+        projectPath: dir,
+        goal: 'make it product-ready',
+        snapshot: snapshot(dir),
+        score: score(),
+        gap: gapReport(dir),
+        allowNetwork: true,
+      },
+    );
+
+    expect(reports).toHaveLength(4);
+    expect(maxActive).toBeGreaterThan(1);
   });
 });

@@ -624,6 +624,39 @@ describe('RuleBasedExecutor', () => {
     expect(prompts).toMatch(/^from __future__ import annotations/);
   });
 
+  it('repairs Python verification failures caused by runtime annotation compatibility', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-py-annotation-repair-'));
+    await fs.writeFile(path.join(dir, 'app.py'), 'import prompts\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), [
+      'def build_prompt(personality: dict | None = None):',
+      '    return personality or {}',
+      '',
+    ].join('\n'));
+
+    const exec = new RuleBasedExecutor();
+    const result = await exec.runTask(
+      {
+        id: 'repair-annotations',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Repair failing project verification',
+        description: 'pytest failed with TypeError: unsupported operand type(s) for |: type and NoneType while importing prompts.py',
+        acceptance_criteria: ['Python sources import on Python 3.9 compatible runtimes'],
+        expected_changed_files: ['prompts.py'],
+        verification_commands: [
+          'python3 -c "import prompts; assert prompts.build_prompt() == {}"',
+        ],
+        priority: 'blocker',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.summary).toContain('annotation compatibility');
+    expect(result.changed_files).toContain('prompts.py');
+  });
+
   it('hardens Flask public runtime controls and API tests', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-runtime-'));
     await fs.writeFile(path.join(dir, 'app.py'), [
