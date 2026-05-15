@@ -114,7 +114,9 @@ function maxTasksForGap(gapReport: GapReport): number {
   const findings = gapReport.findings.filter((finding) => !isRedundantMaturityFinding(finding, gapReport));
   const severeCount = findings.filter((finding) => finding.severity === 'blocker' || finding.severity === 'high').length;
   const deterministicCount = findings.filter((finding) => isDeterministicProductizationCategory(finding.category)).length;
-  if (findings.length >= 10 && severeCount >= 6 && deterministicCount >= 5) {
+  const earlyBacklog = findings.length >= 10 && severeCount >= 6 && deterministicCount >= 5;
+  const deterministicMiddleOrCloseout = findings.length >= 8 && severeCount >= 3 && deterministicCount >= 8;
+  if (earlyBacklog || deterministicMiddleOrCloseout) {
     return EXPANDED_MAX_TASKS_PER_ITERATION;
   }
   return DEFAULT_MAX_TASKS_PER_ITERATION;
@@ -259,8 +261,7 @@ function isRedundantMaturityFinding(finding: GapReport['findings'][number], gapR
   if (finding.category !== 'below_agent_social_deduction_theater_maturity') return false;
   const missing = gapReport.product_maturity?.missing_capabilities ?? [];
   const onlyDeploymentMissing = missing.length > 0 && missing.every((capability) => /deployable runtime|ci hooks/i.test(capability));
-  if (!onlyDeploymentMissing) return false;
-  return gapReport.findings.some((f) =>
+  if (onlyDeploymentMissing && gapReport.findings.some((f) =>
     [
       'flask_docker_uses_dev_server',
       'missing_wsgi_entrypoint',
@@ -269,7 +270,42 @@ function isRedundantMaturityFinding(finding: GapReport['findings'][number], gapR
       'missing_deployment_docs',
       'missing_operational_docs',
     ].includes(f.category),
-  );
+  )) return true;
+
+  return missing.length > 0 && missing.every((capability) => maturityCapabilityCoveredBySpecificFinding(capability, gapReport));
+}
+
+function maturityCapabilityCoveredBySpecificFinding(capability: string, gapReport: GapReport): boolean {
+  if (/deterministic rules|rules engine|guardrails/i.test(capability)) {
+    return gapReport.findings.some((f) =>
+      [
+        'missing_social_deduction_rules_engine',
+        'random_social_deduction_tie_breaker',
+        'missing_social_deduction_rule_tests',
+        'missing_social_deduction_mode_validation',
+        'missing_social_deduction_mode_tests',
+        'missing_social_deduction_mode_startup_guard',
+        'missing_game_design_doc',
+      ].includes(f.category),
+    );
+  }
+  if (/deployable runtime|ci hooks|deployment|docker|wsgi|gunicorn/i.test(capability)) {
+    return gapReport.findings.some((f) =>
+      [
+        'flask_docker_uses_dev_server',
+        'missing_wsgi_entrypoint',
+        'missing_python_production_server',
+        'missing_deployment_artifact',
+        'missing_deployment_docs',
+        'missing_operational_docs',
+        'missing_recommended_file',
+        'no_ci',
+        'misaligned_ci',
+        'ci_ignores_python_constraints',
+      ].includes(f.category),
+    );
+  }
+  return false;
 }
 
 function maxSeverity(a: Severity, b: Severity): Severity {

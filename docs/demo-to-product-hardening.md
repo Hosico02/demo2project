@@ -42,6 +42,9 @@ This note records the issues found while testing Demo2Project against
     round.
 14. Advisory agents still ran during final mechanical closeout rounds, even
     when only deployment or operations documentation remained.
+15. A broad agent-social-deduction maturity finding could survive alongside
+    more precise deterministic-rules and deployment findings, causing the
+    planner to schedule an over-wide hardening task after the precise tasks.
 
 ## Changes made
 
@@ -113,6 +116,11 @@ This note records the issues found while testing Demo2Project against
   deployment, CI or documentation closeout work. In the latest MiniMax werewolf
   run, the final operations-docs iteration dropped from roughly 17.6 seconds to
   2.5 seconds while preserving the same 97/100, zero-finding result.
+- The maturity finding suppressor now checks whether missing agent-theater
+  capabilities are already covered by precise first-party findings. A clean
+  MiniMax-M2.7-highspeed run on a restored `werewolf-demo` copy now finishes in
+  three iterations with 17 planned tasks, no repair task, `97/100`, zero open
+  findings and `33 passed`.
 
 ## Recommended 10-hour command
 

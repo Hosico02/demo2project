@@ -100,7 +100,7 @@
           <article>
             <h2>Current state</h2>
             <p>
-              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. The latest live MiniMax-M2.7-highspeed run on a restored agent-facing werewolf demo reached a 97/100 production-ready baseline with zero open findings and 33 passing pytest cases in four iterations. That run validated domain-aware research, adaptive six-task batches, deterministic Flask deployment scaffolding, CI constraint checks, player-supplied model settings and advisory skip logic for final mechanical closeout.
+              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. The latest live MiniMax-M2.7-highspeed run on a restored agent-facing werewolf demo reached a 97/100 production-ready baseline with zero open findings and 33 passing pytest cases in three iterations, with no repair task. That run validated domain-aware research, adaptive six-task batches, deterministic Flask deployment scaffolding, CI constraint checks, player-supplied model settings and suppression of broad maturity tasks when precise findings already cover the missing capability.
             </p>
           </article>
           <article>

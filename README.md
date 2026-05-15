@@ -184,8 +184,9 @@ MatrixOmnix enforces a discipline:
 
 1. **Score** the project against a project-ready standard.
 2. **Find gaps** with severity + suggested fix.
-3. **Plan** a small batch of tasks (max 4 / iteration) each with acceptance
-   criteria and verification commands.
+3. **Plan** a bounded batch of tasks (normally 4, up to 6 for broad
+   deterministic productization backlogs) each with acceptance criteria and
+   verification commands.
 4. **Execute** via a pluggable `AgentProvider` (Mock / LocalCommand / a future
    ClaudeCode provider).
 5. **Verify**: every code change must produce verification evidence **or** an
@@ -433,9 +434,10 @@ their claims are only accepted after local verification and scoring.
   ignored `constraints.txt`, and stale API tests that supplied a player key
   while asserting `missing_api_key`. The latest copied-source evidence run
   reached `97/100 production_ready_baseline`, `product_maturity market_ready`,
-  and `33 passed`, with `missing_recommended_file (Dockerfile)` handled by the
-  deterministic deployment scaffold instead of a model free edit. This remains
-  a productization baseline rather than a claim that no human release review is
+  and `33 passed` in three iterations with no repair task. `Dockerfile`,
+  `wsgi.py`, deployment docs and operations docs were batched through
+  deterministic scaffolds instead of model free edits. This remains a
+  productization baseline rather than a claim that no human release review is
   needed.
 
 ---

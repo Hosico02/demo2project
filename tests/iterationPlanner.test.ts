@@ -185,6 +185,60 @@ describe('iterationPlanner', () => {
     expect(titles).toContain('Close market capability gap: Agent evaluation harness');
   });
 
+  it('keeps deterministic middle-round closeout work in the same expanded batch', () => {
+    const planner = new PlannerAgent();
+    const baseFinding = {
+      severity: 'medium' as const,
+      why_it_matters: '',
+      suggested_fix: '',
+      related_files: [],
+    };
+    const highFinding = { ...baseFinding, severity: 'high' as const };
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-agent-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['app.py', 'game.py', 'requirements.txt', 'tests'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        { ...highFinding, id: 'gap-rules', category: 'missing_social_deduction_rules_engine', message: 'Missing rules', related_files: ['rules.py'] },
+        { ...highFinding, id: 'gap-tie', category: 'random_social_deduction_tie_breaker', message: 'Random tie breaker', related_files: ['rules.py'] },
+        { ...highFinding, id: 'gap-rule-tests', category: 'missing_social_deduction_rule_tests', message: 'Missing rule tests', related_files: ['tests/test_rules.py'] },
+        { ...baseFinding, id: 'gap-docker', category: 'missing_recommended_file', message: 'Missing Dockerfile', related_files: ['Dockerfile'] },
+        { ...baseFinding, id: 'gap-wsgi-file', category: 'missing_recommended_file', message: 'Missing wsgi.py', related_files: ['wsgi.py'] },
+        { ...baseFinding, id: 'gap-ci', category: 'no_ci', message: 'No CI', related_files: ['.github/workflows/ci.yml'] },
+        { ...baseFinding, id: 'gap-wsgi', category: 'missing_wsgi_entrypoint', message: 'Missing WSGI', related_files: ['wsgi.py'] },
+        { ...baseFinding, id: 'gap-server', category: 'missing_python_production_server', message: 'Missing production server', related_files: ['requirements.txt'] },
+        { ...baseFinding, id: 'gap-deploy', category: 'missing_deployment_artifact', message: 'Missing deployment artifact', related_files: ['Dockerfile'] },
+        { ...baseFinding, id: 'gap-deploy-docs', category: 'missing_deployment_docs', message: 'Missing deployment docs', related_files: ['README.md'] },
+        { ...baseFinding, id: 'gap-ops-docs', category: 'missing_operational_docs', message: 'Missing operational docs', related_files: ['docs/operations.md'] },
+        { ...baseFinding, id: 'gap-game-docs', category: 'missing_game_design_doc', message: 'Missing game design docs', related_files: ['docs/game-design.md'] },
+      ],
+      blockers: [],
+      recommendations: [],
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'finish deterministic werewolf productization');
+    const titles = plan.tasks.map((task) => task.title);
+
+    expect(titles).toContain('Add social deduction rules engine');
+    expect(titles.filter((title) => title === 'Add Flask deployment scaffold')).toHaveLength(1);
+    expect(titles).toContain('Add minimal CI workflow');
+    expect(titles).toContain('Document public demo deployment');
+    expect(titles).toContain('Add operational documentation');
+    expect(titles).not.toContain('Harden agent-facing werewolf product loop');
+    expect(plan.tasks.length).toBeLessThanOrEqual(6);
+  });
+
   it('does not schedule broad agent-theater hardening when only deployment remains', () => {
     const planner = new PlannerAgent();
     const gap = {
@@ -239,6 +293,63 @@ describe('iterationPlanner', () => {
     const plan = planner.plan(gap, 'fix deployment only');
     const titles = plan.tasks.map((t) => t.title);
 
+    expect(titles).toContain('Add Flask deployment scaffold');
+    expect(titles).not.toContain('Harden agent-facing werewolf product loop');
+  });
+
+  it('does not schedule broad agent-theater hardening when precise rules and deployment gaps cover maturity gaps', () => {
+    const planner = new PlannerAgent();
+    const baseFinding = {
+      severity: 'medium' as const,
+      why_it_matters: '',
+      suggested_fix: '',
+      related_files: [],
+    };
+    const gap = {
+      project_snapshot: {
+        project_path: '/tmp/werewolf-agent-demo',
+        detected_language: 'python',
+        detected_frameworks: ['flask', 'pytest'],
+        package_manager: 'pip',
+        test_commands: ['python3 -m pytest -q'],
+        build_commands: [],
+        start_commands: ['python3 app.py'],
+        important_files: ['README.md', 'app.py', 'game.py', 'tests'],
+        missing_files: [],
+        dependency_summary: { runtime: 0, dev: 0, has_lockfile: true },
+        timestamp: new Date(0).toISOString(),
+      },
+      score: { total: 79, grade: 'project_ready_candidate', breakdown: {} as never, notes: [] },
+      findings: [
+        { ...baseFinding, id: 'gap-rules', category: 'missing_social_deduction_rules_engine', severity: 'high' as const, message: 'Missing rules', related_files: ['rules.py'] },
+        { ...baseFinding, id: 'gap-docker', category: 'missing_deployment_artifact', message: 'Missing deployment artifact', related_files: ['Dockerfile'] },
+        {
+          ...baseFinding,
+          id: 'gap-maturity',
+          category: 'below_agent_social_deduction_theater_maturity',
+          message: 'Agent-facing maturity below product grade',
+          suggested_fix: 'Close missing market capabilities: Tested deterministic rules engine, Deployable runtime with CI hooks.',
+          related_files: ['docs/agent-product.md'],
+        },
+      ],
+      blockers: [],
+      recommendations: [],
+      product_maturity: {
+        domain: 'agent_social_deduction_theater',
+        target_market: 'mature agent-facing werewolf simulation and observer product',
+        score: 70,
+        level: 'engineering_baseline',
+        summary: 'rules and deployment remain',
+        capabilities: [],
+        missing_capabilities: ['Tested deterministic rules engine', 'Deployable runtime with CI hooks'],
+        references: [],
+      },
+    } satisfies GapReport;
+
+    const plan = planner.plan(gap, 'finish precise maturity gaps');
+    const titles = plan.tasks.map((task) => task.title);
+
+    expect(titles).toContain('Add social deduction rules engine');
     expect(titles).toContain('Add Flask deployment scaffold');
     expect(titles).not.toContain('Harden agent-facing werewolf product loop');
   });
