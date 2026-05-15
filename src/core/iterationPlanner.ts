@@ -696,15 +696,17 @@ function buildTaskForFinding(
       };
     case 'no_ci':
     case 'misaligned_ci':
+    case 'ci_ignores_python_constraints':
       return {
         id: shortId('task'),
         iteration_id: iterationId,
         assigned_to: 'executor',
-        title: f.category === 'misaligned_ci' ? 'Update CI workflow for project stack' : 'Add minimal CI workflow',
+        title: f.category === 'no_ci' ? 'Add minimal CI workflow' : 'Update CI workflow for project stack',
         description: f.message,
         acceptance_criteria: [
           'CI config exists',
           'workflow runs install + test on push/PR for the detected stack',
+          'Python dependency installs use constraints.txt when a constraint policy exists',
         ],
         expected_changed_files: f.related_files.length > 0 ? f.related_files : ['.github/workflows/ci.yml'],
         verification_commands: ['test -f .github/workflows/ci.yml'],

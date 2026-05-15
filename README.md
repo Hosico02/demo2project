@@ -85,6 +85,10 @@ The current system is intentionally strict about evidence:
 - agent-facing social deduction demos now get a dedicated maturity model, so
   MatrixOmnix can preserve the multi-agent theater premise while still gating
   rules, model/provider configuration, replay, evaluation and observability.
+- mechanical deployment tasks such as missing Flask `Dockerfile` / `wsgi.py`
+  are routed to deterministic scaffolding before any model-backed free edit, and
+  Python CI is checked for the same `constraints.txt` install policy used by
+  local and Docker builds.
 - `iterate` plans bounded tasks and verifies them locally before accepting
   progress.
 - failed verification becomes repair work before normal productization
@@ -417,13 +421,16 @@ their claims are only accepted after local verification and scoring.
 - The MatrixOmnix web Service page is a beta usage guide. Hosted file intake,
   queued processing and artifact packaging are deferred until the productization
   pipeline has stronger production guarantees.
-- A live MiniMax-M2.7-highspeed run on a restored `werewolf-demo` exposed and
-  then repaired two important gate failures: a Flask Dockerfile that existed
-  but still launched `python app.py`, and stale API tests that supplied a
-  player key while asserting `missing_api_key`. The final evidence run reached
-  `97/100 production_ready_baseline`, `product_maturity market_ready`, and
-  `33 passed`, but this remains a productization baseline rather than a claim
-  that no human release review is needed.
+- Live MiniMax-M2.7-highspeed runs on restored `werewolf-demo` copies exposed
+  and then repaired important gate failures: Flask Dockerfiles that existed but
+  still launched `python app.py`, missing `wsgi.py` entries, CI installs that
+  ignored `constraints.txt`, and stale API tests that supplied a player key
+  while asserting `missing_api_key`. The latest copied-source evidence run
+  reached `97/100 production_ready_baseline`, `product_maturity market_ready`,
+  and `33 passed`, with `missing_recommended_file (Dockerfile)` handled by the
+  deterministic deployment scaffold instead of a model free edit. This remains
+  a productization baseline rather than a claim that no human release review is
+  needed.
 
 ---
 

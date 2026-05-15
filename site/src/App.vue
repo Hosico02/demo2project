@@ -100,7 +100,7 @@
           <article>
             <h2>Current state</h2>
             <p>
-              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. A live MiniMax run on an agent-facing werewolf demo validated domain-aware research, stricter production Docker gates, player-supplied model settings and evidence-first repair of stale API tests.
+              MatrixOmnix can already lift rough repositories into stronger engineering baselines by adding tests, runtime contracts, configuration checks, documentation, deployment hooks, UI harnesses and QA regression memory. Live MiniMax runs on an agent-facing werewolf demo validated domain-aware research, deterministic Flask deployment scaffolding, CI constraint checks, player-supplied model settings and evidence-first repair of stale API tests.
             </p>
           </article>
           <article>

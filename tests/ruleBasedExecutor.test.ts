@@ -451,6 +451,50 @@ describe('RuleBasedExecutor', () => {
     expect(constraints).toContain('gunicorn>=22.0.0,<23.0.0');
   });
 
+  it('updates Python CI to use constraints when a constraints policy exists', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-python-ci-constraints-'));
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("demo")\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'pytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'pytest>=8.0.0,<9.0.0\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), [
+      'name: CI',
+      'on: [push, pull_request]',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-python@v5',
+      '      - run: pip install -r requirements.txt',
+      '      - run: python -m pytest -q',
+      '',
+    ].join('\n'));
+
+    const result = await new RuleBasedExecutor().runTask(
+      {
+        id: 'ci-constraints',
+        iteration_id: 'iter1',
+        assigned_to: 'executor',
+        title: 'Update CI workflow for project stack',
+        description: 'CI installs Python dependencies without constraints.txt',
+        acceptance_criteria: ['Python CI uses constraints.txt'],
+        expected_changed_files: ['.github/workflows/ci.yml'],
+        verification_commands: [
+          'python3 -c "from pathlib import Path; assert \'-c constraints.txt\' in Path(\'.github/workflows/ci.yml\').read_text()"',
+        ],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'iter1', recent_events: [] },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('.github/workflows/ci.yml');
+    const workflow = await fs.readFile(path.join(dir, '.github', 'workflows', 'ci.yml'), 'utf8');
+    expect(workflow).toContain('pip install -r requirements.txt -c constraints.txt');
+  });
+
   it('adds Flask health and missing-key guard for compatible app.py demos', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-rbe-flask-guard-'));
     await fs.writeFile(path.join(dir, 'app.py'), [

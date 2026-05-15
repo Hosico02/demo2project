@@ -1021,6 +1021,33 @@ describe('gapAnalyzer', () => {
     expect(categories).toContain('unbounded_python_dependencies');
   });
 
+  it('flags Python CI that ignores an existing constraints policy', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-python-ci-constraints-gap-'));
+    await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
+    await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# Python Demo\n\nInstall with pip install -r requirements.txt -c constraints.txt.\n' + 'x'.repeat(260));
+    await fs.writeFile(path.join(dir, 'app.py'), 'print("demo")\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'pytest>=8.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'pytest>=8.0.0,<9.0.0\n');
+    await fs.writeFile(path.join(dir, 'pyproject.toml'), '[project]\nname = "demo"\n');
+    await fs.writeFile(path.join(dir, 'tests', 'test_smoke.py'), 'def test_smoke():\n    assert True\n');
+    await fs.writeFile(path.join(dir, '.github', 'workflows', 'ci.yml'), [
+      'name: CI',
+      'jobs:',
+      '  test:',
+      '    steps:',
+      '      - uses: actions/setup-python@v5',
+      '      - run: pip install -r requirements.txt',
+      '      - run: python -m pytest -q',
+      '',
+    ].join('\n'));
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+    const categories = gap.findings.map((f) => f.category);
+
+    expect(categories).toContain('ci_ignores_python_constraints');
+  });
+
   it('flags Flask products without regression tests and operational docs', async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-flask-regression-docs-gap-'));
     await fs.mkdir(path.join(dir, 'tests'), { recursive: true });
@@ -1279,6 +1306,36 @@ describe('gapAnalyzer', () => {
     expect(categories).not.toContain('below_social_deduction_market_parity');
     expect(gap.product_maturity?.missing_capabilities).not.toContain('Account identity and player profiles');
     expect(gap.score.score_gate?.failures.some((f) => f.reason.includes('agent_social_deduction_theater'))).toBe(true);
+  });
+
+  it('does not count scattered provider strings as per-session agent model configuration', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'd2p-agent-werewolf-scattered-config-'));
+    await fs.mkdir(path.join(dir, 'templates'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'README.md'), '# 狼人杀 Multi-Agent Theater\n\nLLM agents play werewolf for observers with model provider settings.\n' + 'x'.repeat(320));
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0\nopenai>=1.0.0\n');
+    await fs.writeFile(path.join(dir, 'app.py'), [
+      'from flask import Flask, jsonify, request',
+      'app = Flask(__name__)',
+      '@app.route("/config")',
+      'def config():',
+      '    return jsonify({"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com"})',
+      '@app.route("/start", methods=["POST"])',
+      'def start():',
+      '    body = request.get_json(silent=True) or {}',
+      '    return jsonify({"api_key": body.get("api_key"), "provider": body.get("provider"), "model": body.get("model")})',
+      '@app.route("/stream/<gid>")',
+      'def stream(gid): return "SSE observer timeline"',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(dir, 'game.py'), 'GAME_MODES = {"m6": {"roles": ["werewolf", "seer", "villager"]}}\nclass GameMaster:\n    def winner(self):\n        return "werewolf"  # night day vote win condition\n');
+    await fs.writeFile(path.join(dir, 'player.py'), 'from openai import OpenAI\nclass Player:\n    def speak(self):\n        return "LLM agent provider model call"\n');
+    await fs.writeFile(path.join(dir, 'prompts.py'), 'def build_system_prompt(): return "role secrecy prompt"\n');
+    await fs.writeFile(path.join(dir, 'templates', 'index.html'), '<select id="llmProvider"></select><input id="apiKey"><script>fetch("/start", {body: JSON.stringify({provider:"deepseek", model:"deepseek-chat", api_key:"sk"})}); new EventSource("/stream/demo");</script>\n');
+
+    const { gap } = await new AnalyzerAgent().fullAnalyze(dir);
+
+    expect(gap.product_maturity?.domain).toBe('agent_social_deduction_theater');
+    expect(gap.product_maturity?.missing_capabilities).toContain('Per-session agent model and provider configuration');
   });
 
   it('counts player-supplied provider config evidence toward agent-facing maturity', async () => {

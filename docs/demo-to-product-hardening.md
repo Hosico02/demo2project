@@ -28,6 +28,11 @@ This note records the issues found while testing Demo2Project against
 9. Demo-type generalization still missed specialized delivery surfaces such as
    browser extensions, notebooks, mobile shells, desktop shells, games,
    3D/WebGL scenes, ML model demos and media pipelines.
+10. Mechanical deployment gaps could still be handed to MiniMax as free-form
+    edits. In live werewolf runs this created a bad intermediate Flask
+    Dockerfile before a later gate repaired it.
+11. CI could pass while installing Python dependencies without the
+    `constraints.txt` policy used by Docker and local setup.
 
 ## Changes made
 
@@ -77,6 +82,15 @@ This note records the issues found while testing Demo2Project against
   validate manifest and entry evidence, notebook parseability, platform config,
   renderer/game-loop/model/media-pipeline evidence, or desktop shell evidence
   before further productization work is planned.
+- MiniMax now routes mechanical Flask deployment tasks such as missing
+  `Dockerfile`, `.dockerignore` and `wsgi.py` through the deterministic
+  deployment scaffold first. The scaffold writes a gunicorn `wsgi:app`
+  Dockerfile, health check, `.dockerignore`, bounded `gunicorn` constraint and
+  WSGI entry without relying on model free-form edits.
+- Gap analysis now flags Python CI workflows that install
+  `requirements.txt` without `-c constraints.txt` when a constraints policy is
+  present, and the rule-based executor rewrites Python CI to use the same
+  install policy.
 
 ## Recommended 10-hour command
 
@@ -90,7 +104,7 @@ pnpm demo2project long-run \
   --iterations 200 \
   --heartbeat-seconds 300 \
   --max-no-progress-rounds 6 \
-  --target-score 86 \
+  --target-score 97 \
   --in-place \
   --output reports/long-run/werewolf-minimax.json
 ```
@@ -105,8 +119,10 @@ python3 -m pytest -q
 
 Expected current `werewolf-demo` evidence result after these changes:
 
-- score: `86/100`
+- score: `97/100`
 - grade: `production_ready_baseline`
 - gap findings: `0`
 - blockers: `0`
 - score gate: `passed`
+- product maturity: `market_ready` (`100/100`)
+- test evidence: `33 passed`

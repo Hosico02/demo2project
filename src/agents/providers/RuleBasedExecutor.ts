@@ -953,11 +953,20 @@ async function addSpecializedSurfaceContractHarness(projectPath: string, opts: {
 const writeCiWorkflow: Handler = async (projectPath) => {
   const target = path.join(projectPath, '.github', 'workflows', 'ci.yml');
   const python = await isPythonProject(projectPath);
+  const useConstraints = python && fileExists(path.join(projectPath, 'constraints.txt'));
   const existing = await readTextSafe(target);
-  if (existing && (!python || /setup-python|pytest|pip install/i.test(existing))) {
+  const existingPythonWorkflowIsAligned =
+    !!existing &&
+    python &&
+    /setup-python|pytest|pip install/i.test(existing) &&
+    (!useConstraints || /-c\s+constraints\.txt/.test(existing));
+  if (existing && (!python || existingPythonWorkflowIsAligned)) {
     return { summary: 'ci.yml already exists', changed_files: [] };
   }
   if (python) {
+    const installCommand = useConstraints
+      ? 'pip install -r requirements.txt -c constraints.txt'
+      : 'pip install -r requirements.txt';
     const body = [
       'name: CI',
       'on: [push, pull_request]',
@@ -970,7 +979,7 @@ const writeCiWorkflow: Handler = async (projectPath) => {
       '        with:',
       '          python-version: "3.11"',
       '      - run: python -m pip install --upgrade pip',
-      '      - run: pip install -r requirements.txt',
+      `      - run: ${installCommand}`,
       '      - run: python -m pytest -q',
       '',
     ].join('\n');

@@ -305,12 +305,15 @@ async function runDeterministicFallback(
 }
 
 function deterministicFirstTaskReason(task: AgentTask, ctx: AgentContext): string | null {
+  const isRepair = /repair failing project verification|repair failed verification/i.test(task.title);
+  const plannedText = `${task.title}\n${task.description}\n${task.expected_changed_files.join('\n')}\n${task.verification_commands.join('\n')}`;
   if (/add player-supplied llm provider configuration|repair llm provider select option labels|expand player-selectable llm provider catalog/i.test(task.title)) {
     return 'deterministic_first_known_llm_provider_config_task';
   }
-  const isRepair = /repair failing project verification|repair failed verification/i.test(task.title);
-  const plannedText = `${task.title}\n${task.description}\n${task.expected_changed_files.join('\n')}\n${task.verification_commands.join('\n')}`;
   const acceptanceText = task.acceptance_criteria.join('\n');
+  if (!isRepair && isMechanicalDeploymentScaffoldTask(task, plannedText)) {
+    return 'deterministic_first_mechanical_deployment_scaffold';
+  }
   if (
     !isRepair &&
     (
@@ -352,6 +355,17 @@ function isMechanicalContractHarnessTask(title: string): boolean {
 function isKnownRuleBasedProductTask(title: string): boolean {
   return /^(implement product core spine|add product runtime entry|add python dependency constraints|add flask health and config guard|add flask api tests|add flask regression tests|add operational documentation|add minimal pyproject\.toml|add minimal ci workflow|update ci workflow for project stack|add flask deployment scaffold|document public demo deployment|harden flask public runtime controls|add social deduction rules engine|integrate social product backbone into app workflows|harden agent-facing werewolf product loop)$/i.test(title.trim()) ||
     /^close market capability gap:\s*(agent model and provider configuration|simulation replay and observability|agent evaluation harness|deterministic rules and agent guardrails)$/i.test(title.trim());
+}
+
+function isMechanicalDeploymentScaffoldTask(task: AgentTask, text: string): boolean {
+  const targets = task.expected_changed_files.map((file) => file.toLowerCase());
+  const touchesDeploymentEntrypoint = targets.some((file) =>
+    file === 'dockerfile' ||
+    file === 'wsgi.py' ||
+    file === '.dockerignore',
+  );
+  return touchesDeploymentEntrypoint &&
+    /missing_(recommended|required)_file|dockerfile|wsgi|deployment scaffold|production server/i.test(text);
 }
 
 async function invokeMiniMax(

@@ -232,6 +232,22 @@ export async function analyzeGaps(
         ),
       );
     }
+    if (
+      has('constraints.txt') &&
+      /(?:python\s+-m\s+)?pip\s+install[^\n]*-r\s+requirements\.txt/i.test(workflowText) &&
+      !/(?:python\s+-m\s+)?pip\s+install[^\n]*(?:-r\s+requirements\.txt[^\n]*-c\s+constraints\.txt|-c\s+constraints\.txt[^\n]*-r\s+requirements\.txt)/i.test(workflowText)
+    ) {
+      findings.push(
+        finding(
+          'ci_ignores_python_constraints',
+          'medium',
+          'CI installs Python dependencies without the checked-in constraints policy',
+          'A local constraints.txt only protects production if CI uses the same install policy; otherwise green builds can hide dependency drift.',
+          'Update the Python CI workflow to install with pip install -r requirements.txt -c constraints.txt.',
+          workflowFiles.length > 0 ? workflowFiles : ['.github/workflows/ci.yml'],
+        ),
+      );
+    }
   }
   if (
     scripts.build &&
@@ -2325,9 +2341,23 @@ async function assessAgentSocialDeductionTheaterMaturity(
     implementationFiles.slice(0, 160).map(async (file) => `${file}\n${(await readTextSafe(path.join(root, file))) ?? ''}`),
   );
   const blob = snippets.join('\n').toLowerCase();
+  const appSource = ((await readTextSafe(path.join(root, 'app.py'))) ?? '').toLowerCase();
+  const llmConfigSource = ((await readTextSafe(path.join(root, 'llm_config.py'))) ?? '').toLowerCase();
+  const templateSource = snippets
+    .filter((snippet) => /^templates\//i.test(snippet))
+    .join('\n')
+    .toLowerCase();
   const hasFile = (pattern: RegExp): boolean => files.some((file) => pattern.test(file));
   const hasText = (pattern: RegExp): boolean => pattern.test(blob);
   const hasTests = hasFile(/(^|\/)tests?\/.*\.(py|ts|js)$/);
+  const hasPlayerSuppliedLlmConfig =
+    hasFile(/^llm_config\.py$/) &&
+    /public_provider_config/.test(llmConfigSource) &&
+    /resolve_llm_config|validate_llm_config/.test(llmConfigSource) &&
+    /requires_player_key|llm_provider|llm_model|llm_api_key|api_key/.test(llmConfigSource) &&
+    /public_provider_config|resolve_llm_config|validate_llm_config/.test(appSource) &&
+    /request\.(json|get_json)|get_json|llm_provider|llm_api_key/.test(appSource) &&
+    /llmprovider|llm_provider|llmmodel|llm_model|llm_api_key|apikey|api key|provider/.test(templateSource);
   const capabilities = [
     capability(
       'deterministic_rules_engine',
@@ -2338,8 +2368,7 @@ async function assessAgentSocialDeductionTheaterMaturity(
     capability(
       'agent_model_configuration',
       'Per-session agent model and provider configuration',
-      hasText(/public_provider_config|provider.*model|model.*provider|api_key|base_url|openai[-_ ]compatible/) &&
-        hasText(/request\.(json|get_json)|requires_player_key|llm_provider|llm_api_key|session|game_config|player.*config|per[-_ ]session/),
+      hasPlayerSuppliedLlmConfig,
       ['llm_config.py', 'app.py', 'templates/index.html'],
     ),
     capability(

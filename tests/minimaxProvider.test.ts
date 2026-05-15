@@ -82,6 +82,44 @@ describe('MiniMaxProvider', () => {
     expect(result.changed_files).toEqual([]);
   });
 
+  it('routes mechanical Dockerfile recommended-file tasks through deterministic deployment scaffolding', async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, 'app.py'), 'from flask import Flask\napp = Flask(__name__)\n@app.route("/healthz")\ndef healthz():\n    return "ok"\n');
+    await fs.writeFile(path.join(dir, 'requirements.txt'), 'flask>=3.0.0,<4.0.0\npytest>=8.0.0,<9.0.0\n');
+    await fs.writeFile(path.join(dir, 'constraints.txt'), 'flask>=3.0.0,<4.0.0\npytest>=8.0.0,<9.0.0\n');
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response('{}', { status: 500 });
+    }) as typeof fetch;
+    const provider = new MiniMaxProvider({ enabled: true, apiKey: 'test-key', fetchImpl });
+
+    const result = await provider.runTask(
+      {
+        id: 't_docker_recommended',
+        iteration_id: 'i_minimax',
+        assigned_to: 'executor',
+        title: 'Address gap: missing_recommended_file (Dockerfile)',
+        description: 'Missing recommended file/dir: Dockerfile',
+        acceptance_criteria: ['Dockerfile exists'],
+        expected_changed_files: ['Dockerfile'],
+        verification_commands: [
+          'python3 -c "from pathlib import Path; t=Path(\'Dockerfile\').read_text().lower(); assert \'gunicorn\' in t and \'wsgi:app\' in t"',
+        ],
+        priority: 'medium',
+        status: 'pending',
+      },
+      { project_path: dir, iteration_id: 'i_minimax', recent_events: [] },
+    );
+
+    expect(calls).toBe(0);
+    expect(result.status).toBe('completed');
+    expect(result.changed_files).toContain('Dockerfile');
+    expect(result.changed_files).toContain('wsgi.py');
+    expect(result.risks).toContain('deterministic_first_mechanical_deployment_scaffold');
+    expect(await fs.readFile(path.join(dir, 'Dockerfile'), 'utf8')).toContain('-c constraints.txt');
+  });
+
   it('includes recent verification failures and referenced files in the prompt', async () => {
     const dir = await tmp();
     await fs.writeFile(path.join(dir, 'prompts.py'), 'PROMPTS_SENTINEL = True\n');
